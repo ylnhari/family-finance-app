@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Finance</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>&#128176;</text></svg>">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><span class="brand-icon">&#9679;</span> <span id="brandName">Family Finance</span></div>
+    <nav id="nav">
+      <button data-page="dashboard" class="active"><span class="ni">&#9632;</span>Dashboard</button>
+      <button data-page="income"><span class="ni">&#8377;</span>Income</button>
+      <button data-page="expenses"><span class="ni">&#9636;</span>Expenses</button>
+      <button data-page="investments"><span class="ni">&#10548;</span>Monthly Investments</button>
+      <button data-page="portfolio"><span class="ni">&#9670;</span>Portfolio</button>
+      <button data-page="loans"><span class="ni">&#9878;</span>Loans</button>
+      <button data-page="goals"><span class="ni">&#9873;</span>Goals</button>
+      <button data-page="cards"><span class="ni">&#9646;</span>Cards</button>
+      <button data-page="documents"><span class="ni">&#128206;</span>Documents</button>
+      <button data-page="settings"><span class="ni">&#9881;</span>Settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div id="saveStatus" class="save-status">All changes saved</div>
+      <div id="lastUpdated" class="muted small"></div>
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+<script src="app.js"></script>
+</body>
+</html>

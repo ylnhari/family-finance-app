@@ -1,0 +1,10 @@
+# Personal financial data - NEVER commit this
+data/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.pyc
+__pycache__/
+.vscode/
+.idea/
