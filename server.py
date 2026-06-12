@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import sys
 import threading
 import webbrowser
@@ -80,7 +81,7 @@ def ensure_data():
     if not os.path.exists(data_file()):
         with open(data_file(), "w", encoding="utf-8") as f:
             json.dump(EMPTY_DATA, f, indent=2)
-        print(f"  Created new empty data file: {data_file()}")
+        print("  Created new empty data file: " + data_file())
 
 
 def safe_name(name):
@@ -208,6 +209,23 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True})
 
 
+class FFServer(ThreadingHTTPServer):
+    # Do NOT reuse addresses: on Windows, SO_REUSEADDR lets two servers bind the
+    # same port silently, so you'd land on another app's page. Exclusive binding
+    # makes a real conflict error we can catch and step past.
+    allow_reuse_address = False
+
+
+def port_in_use(port):
+    """True if something is already accepting connections on this port."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+    finally:
+        s.close()
+
+
 def main():
     global DATA_DIR
     ap = argparse.ArgumentParser(description="Family Finance local server")
@@ -221,14 +239,18 @@ def main():
 
     port = args.port
     httpd = None
-    for _ in range(20):
+    for _ in range(50):
+        if port_in_use(port):          # another app is already serving here
+            print("  Port %d is busy (another server is using it) - trying %d" % (port, port + 1))
+            port += 1
+            continue
         try:
-            httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            httpd = FFServer(("127.0.0.1", port), Handler)
             break
-        except OSError:
+        except OSError:                # raced or blocked - step to the next port
             port += 1
     if httpd is None:
-        print("Could not find a free port.")
+        print("Could not find a free port (tried %d-%d)." % (args.port, port))
         sys.exit(1)
 
     url = "http://127.0.0.1:%d" % port
