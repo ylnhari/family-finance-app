@@ -35,9 +35,11 @@ body{font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;ba
 .kpis{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:20px}
 .kpi{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px}
 .kpi .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-.kpi .value{font-size:22px;font-weight:700;margin-top:4px}
+.kpi .value{font-size:22px;font-weight:700;margin-top:4px;color:var(--ink)} /* explicit: never inherit (was invisible on dark earner panels) */
 .kpi .delta{font-size:12px;margin-top:3px}
 .pos{color:var(--green)} .neg{color:var(--red)} .warn{color:var(--amber)}
+.kpi .value.pos{color:var(--green)} .kpi .value.neg{color:var(--red)}
+.earner-head{background:#10182c;color:#fff}
 .panel{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:18px}
 .panel h2{font-size:16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .two-col{grid-template-columns:1fr 1fr}
@@ -72,6 +74,13 @@ label.fld span{display:block;margin-bottom:4px}
 .inline-input{border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:110px;text-align:right;font-variant-numeric:tabular-nums}
 .inline-input:hover{border-color:#ccd4e2;background:#fff}
 .inline-input.wide{width:100%;text-align:left}
+.inline-select{font:inherit;font-size:13px;border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:auto;color:var(--ink)}
+.inline-select:hover{border-color:#ccd4e2;background:#fff}
+
+/* ---------- combo (predefined dropdown + custom entry) ---------- */
+.combo .combo-free{display:flex;gap:6px;align-items:center}
+.combo .combo-free .combo-input{flex:1}
+.combo .combo-back{flex-shrink:0;font-size:16px}
 
 /* ---------- chips & badges ---------- */
 .chip{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--accent-soft);color:var(--accent)}

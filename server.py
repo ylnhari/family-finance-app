@@ -84,6 +84,32 @@ def ensure_data():
         print("  Created new empty data file: " + data_file())
 
 
+AUTO_BAK_RE = re.compile(r"^finances-\d{4}-\d{2}-\d{2}\.json$")  # daily auto backups (rotated)
+BAK_NAME_RE = re.compile(r"^finances-[\w.\-]+\.json$")           # any valid backup file name
+
+
+def rotate_auto_backups(keep=14):
+    """Prune only automatic daily backups; manual/pre-restore ones are kept."""
+    autos = sorted(n for n in os.listdir(backups_dir()) if AUTO_BAK_RE.match(n))
+    for old in autos[:-keep]:
+        os.remove(os.path.join(backups_dir(), old))
+
+
+def make_backup(kind=None):
+    """Snapshot the current data file into backups/. kind=None -> daily auto."""
+    if not os.path.exists(data_file()):
+        return None
+    if kind:
+        name = "finances-%s-%s.json" % (kind, datetime.now().strftime("%Y-%m-%d-%H%M%S"))
+    else:
+        name = "finances-%s.json" % datetime.now().strftime("%Y-%m-%d")
+        if os.path.exists(os.path.join(backups_dir(), name)):
+            return None  # today's auto backup already exists
+    shutil.copy2(data_file(), os.path.join(backups_dir(), name))
+    rotate_auto_backups()
+    return name
+
+
 def safe_name(name):
     """Sanitize a filename: strip paths, keep readable chars."""
     name = os.path.basename(unquote(name or ""))
@@ -133,6 +159,19 @@ class Handler(BaseHTTPRequestHandler):
                     items.append({"name": n, "size": os.path.getsize(p),
                                   "modified": datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="seconds")})
             self._send(200, items)
+        elif path == "/api/backups":
+            items = []
+            for n in sorted(os.listdir(backups_dir()), reverse=True):
+                p = os.path.join(backups_dir(), n)
+                if os.path.isfile(p) and BAK_NAME_RE.match(n):
+                    items.append({"name": n, "size": os.path.getsize(p),
+                                  "modified": datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="seconds")})
+            self._send(200, items)
+        elif path.startswith("/backups/"):
+            n = safe_name(path[len("/backups/"):])
+            if not BAK_NAME_RE.match(n):
+                return self._err(400, "Invalid backup name")
+            self._serve_file(os.path.join(backups_dir(), n), download=True)
         elif path.startswith("/files/"):
             self._serve_file(os.path.join(files_dir(), safe_name(path[len("/files/"):])), download=True)
         else:
@@ -164,14 +203,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._err(400, "Invalid JSON: %s" % e)
         data.setdefault("settings", {})["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
-        # rotating daily backup (keep last 14)
-        stamp = datetime.now().strftime("%Y-%m-%d")
-        bak = os.path.join(backups_dir(), "finances-%s.json" % stamp)
-        if os.path.exists(data_file()) and not os.path.exists(bak):
-            shutil.copy2(data_file(), bak)
-            baks = sorted(os.listdir(backups_dir()))
-            for old in baks[:-14]:
-                os.remove(os.path.join(backups_dir(), old))
+        make_backup()  # automatic rotating daily backup (first save of the day)
         # atomic write
         tmp = data_file() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -181,6 +213,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/backup":
+            name = make_backup("manual")
+            if not name:
+                return self._err(400, "No data file to back up yet")
+            return self._send(200, {"ok": True, "name": name})
+        if parsed.path == "/api/restore":
+            name = safe_name((parse_qs(parsed.query).get("name") or [""])[0])
+            src = os.path.join(backups_dir(), name)
+            if not BAK_NAME_RE.match(name) or not os.path.isfile(src):
+                return self._err(404, "Backup not found")
+            try:
+                with open(src, "r", encoding="utf-8") as f:
+                    json.load(f)                     # refuse to restore corrupt JSON
+            except Exception as e:
+                return self._err(400, "Backup file is not valid JSON: %s" % e)
+            make_backup("prerestore")                # safety snapshot of current data
+            shutil.copy2(src, data_file())
+            return self._send(200, {"ok": True, "restored": name})
         if parsed.path != "/api/upload":
             return self._err(404, "Not found")
         q = parse_qs(parsed.query)
@@ -200,6 +250,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         path = urlparse(self.path).path
+        if path.startswith("/api/backups/"):
+            n = safe_name(path[len("/api/backups/"):])
+            fp = os.path.join(backups_dir(), n)
+            if not BAK_NAME_RE.match(n) or not os.path.isfile(fp):
+                return self._err(404, "Backup not found")
+            os.remove(fp)
+            return self._send(200, {"ok": True})
         if not path.startswith("/api/files/"):
             return self._err(404, "Not found")
         fp = os.path.join(files_dir(), safe_name(path[len("/api/files/"):]))
@@ -226,10 +283,20 @@ def port_in_use(port):
         s.close()
 
 
+def get_registered_port(default: int = 8765) -> int:
+    """Read port from sibling ports.json if present, else use default."""
+    ports_file = os.path.join(os.path.dirname(APP_DIR), "ports.json")
+    try:
+        with open(ports_file) as f:
+            return json.load(f)["registry"]["family-finance-app"]["port"]
+    except Exception:
+        return default
+
+
 def main():
     global DATA_DIR
     ap = argparse.ArgumentParser(description="Family Finance local server")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=get_registered_port())
     ap.add_argument("--data-dir", default=os.path.join(APP_DIR, "data"))
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()

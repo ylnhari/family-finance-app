@@ -1,4 +1,4 @@
-/* Family Finance - app logic. No personal data lives in this file. */
+/* Family Finance — app logic. No personal data lives in this file. */
 "use strict";
 
 let DB = null;            // the whole data document
@@ -18,6 +18,81 @@ function migrate() {
   DB.income = DB.income || { persons: [] };
   for (const k of ["expenses","monthlyInvestments","portfolio","gold","loans","goals","cards","documents"])
     DB[k] = DB[k] || [];
+
+  /* ---- predefined value lists (seeded once from existing data) ---- */
+  DB.settings.predefined = DB.settings.predefined || {};
+  const P = DB.settings.predefined;
+  const seed = (key, vals, defaults) => {
+    if (!Array.isArray(P[key])) P[key] = [];
+    [...(defaults || []), ...vals].forEach(v => { v = (v || "").trim(); if (v && !P[key].includes(v)) P[key].push(v); });
+  };
+  seed("expenseGroups", DB.expenses.map(e => e.group));
+  if (!P.expenseCategories || typeof P.expenseCategories !== "object") P.expenseCategories = {};
+  DB.expenses.forEach(e => {
+    const g = (e.group || "Other").trim();
+    P.expenseCategories[g] = P.expenseCategories[g] || [];
+    if (e.category && !P.expenseCategories[g].includes(e.category)) P.expenseCategories[g].push(e.category);
+  });
+  seed("locations", [...(DB.settings.locations || []), ...DB.expenses.map(e => e.location)]);
+  seed("investmentInstruments", DB.monthlyInvestments.map(i => i.category), ["PF", "NPS", "MF SIP", "Gold Scheme", "RD"]);
+  seed("assetClasses", DB.portfolio.map(p => p.subCategory), ["Equity", "Debt", "Fixed", "Real estate", "Liquidity", "Gold", "Other"]);
+  seed("assetNames", DB.portfolio.map(p => p.category));
+  seed("goalTypes", DB.goals.map(g => g.type), ["Car", "Home", "Family Function", "Travel", "Education"]);
+  seed("banks", DB.cards.map(c => c.bank));
+  seed("cardTypes", DB.cards.map(c => c.type), ["Credit", "Debit", "Credit Virtual", "Debit Virtual", "Food Card", "Priority Pass", "Other"]);
+  seed("networks", DB.cards.map(c => c.variant), ["VISA", "MasterCard", "RuPay", "AmEx"]);
+  seed("lenders", DB.loans.map(L => L.lender));
+  seed("incomeComponents", (DB.income.persons || []).flatMap(p => (p.components || p.gross || []).map(c => c.component)),
+    ["BASIC SALARY", "HOUSE RENT ALLOWANCE", "PERSONAL ALLOWANCE", "BONUS", "EMPLOYER PF", "EMPLOYER NPS", "SPECIAL ALLOWANCE"]);
+  seed("deductionComponents", (DB.income.persons || []).flatMap(p => (p.deductions || []).map(c => c.component)),
+    ["INCOME TAX (TDS)", "EMPLOYEE PF", "PROFESSIONAL TAX", "EMPLOYEE NPS"]);
+
+  /* which extra dimension each expense section tracks: location | person | none */
+  if (!P.expenseGroupMeta || typeof P.expenseGroupMeta !== "object") P.expenseGroupMeta = {};
+  P.expenseGroups.forEach(g => {
+    if (!P.expenseGroupMeta[g]) {
+      const items = DB.expenses.filter(e => (e.group || "Other") === g);
+      P.expenseGroupMeta[g] = { dim: items.some(e => e.location) ? "location" : items.some(e => e.person) ? "person" : "none" };
+    }
+  });
+
+  /* ---- income schema v2: one component list, In-Hand computed ----
+     CTC = Gross + CTC-only items; In-Hand = Gross − Deductions.
+     Old per-section data is merged; if the recorded in-hand didn't match
+     gross − deductions, the gap becomes an 'Other deductions (derived)' row
+     so displayed in-hand stays identical. */
+  (DB.income.persons || []).forEach(p => {
+    if (p.components) return;                                  // already migrated
+    const gross = p.gross || [], ctc = p.ctc || [], ded = p.deductions || [], inHand = p.inHand || [];
+    const grossNames = new Set(gross.map(c => (c.component || "").trim().toUpperCase()));
+    p.components = gross.map(c => ({ component: c.component, amount: num(c.amount), scope: "gross" }))
+      .concat(ctc.filter(c => !grossNames.has((c.component || "").trim().toUpperCase()))
+        .map(c => ({ component: c.component, amount: num(c.amount), scope: "ctc" })));
+    p.deductions = ded.map(c => ({ component: c.component, amount: num(c.amount) }));
+    const grossTot = gross.reduce((s, c) => s + num(c.amount), 0);
+    const dedTot = p.deductions.reduce((s, c) => s + num(c.amount), 0);
+    const ihTot = inHand.reduce((s, c) => s + num(c.amount), 0);
+    const gap = grossTot - dedTot - ihTot;
+    if (ihTot && gap > 1) p.deductions.push({ component: "Other deductions (derived)", amount: Math.round(gap) });
+    delete p.ctc; delete p.gross; delete p.inHand;
+  });
+}
+
+/* ---- predefined-list helpers ---- */
+function predList(key) {
+  const P = DB.settings.predefined;
+  if (key === "persons") return DB.settings.persons;
+  if (key.startsWith("expenseCategories:")) {
+    const g = key.slice("expenseCategories:".length);
+    return P.expenseCategories[g] = P.expenseCategories[g] || [];
+  }
+  return P[key] = P[key] || [];
+}
+function addPred(key, val) {
+  val = (val || "").trim();
+  if (!val) return;
+  const l = predList(key);
+  if (!l.includes(val)) l.push(val);
 }
 function save(immediate) {
   setSaveStatus("saving");
@@ -49,6 +124,14 @@ const els = (q, root) => [...(root || document).querySelectorAll(q)];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const num = v => { const n = parseFloat(String(v).replace(/[,\s]/g, "")); return isFinite(n) ? n : 0; };
+/* strict amount validation: numbers only, no negatives. Empty = 0. */
+function validAmount(v) {
+  const s = String(v ?? "").trim().replace(/[,\s]/g, "");
+  if (s === "") return { ok: true, n: 0 };
+  if (!/^\d*\.?\d+$/.test(s)) return { ok: false };
+  const n = parseFloat(s);
+  return isFinite(n) && n >= 0 ? { ok: true, n } : { ok: false };
+}
 
 function fmtMoney(v, compact) {
   if (v === null || v === undefined || isNaN(v)) return "–";
@@ -164,19 +247,92 @@ function formModal(title, fields, onSubmit, opts) {
         <button type="submit" class="btn">${esc((opts && opts.submitLabel) || "Save")}</button>
       </div>
     </form>`);
+  const flat = fields.flatMap(f => f.type === "row" ? f.fields : [f]);
   el("#mf", ov).addEventListener("submit", e => {
     e.preventDefault();
     const vals = {};
     els("[name]", ov).forEach(i => {
       vals[i.name] = i.type === "checkbox" ? i.checked : i.value.trim();
     });
+    /* required check (hidden combo inputs bypass native validation) */
+    for (const f of flat) {
+      if (f.required && f.name in vals && !String(vals[f.name]).trim()) {
+        const fld = el(`[name="${f.name}"]`, ov).closest(".fld");
+        if (!fld || fld.style.display !== "none") return toast(`Please fill in "${f.label}"`, true);
+      }
+    }
+    /* persist combo values chosen via "Add new (save for reuse)" */
+    els(".combo[data-mode=add]", ov).forEach(c => {
+      if (c.dataset.list) addPred(c.dataset.list, el("input[type=hidden]", c).value);
+    });
     onSubmit(vals);
   });
+  initCombos(ov);
   if (opts && opts.onReady) opts.onReady(ov);
   return ov;
 }
+/* wire up combo fields: dropdown of predefined values + "add predefined" + "one-time custom" */
+function initCombos(ov) {
+  els(".combo", ov).forEach(c => {
+    const sel = el(".combo-select", c), hid = el("input[type=hidden]", c),
+          free = el(".combo-free", c), inp = el(".combo-input", c);
+    const fire = () => c.dispatchEvent(new CustomEvent("combochange", { bubbles: true }));
+    if (free.style.display === "none" && !hid.value) {
+      if (["__add__", "__custom__"].includes(sel.value)) {
+        /* empty predefined list: jump straight to free-text entry (saved as predefined) */
+        c.dataset.mode = "add"; sel.style.display = "none"; free.style.display = "";
+      } else hid.value = sel.value;
+    }
+    sel.addEventListener("change", () => {
+      if (sel.value === "__add__" || sel.value === "__custom__") {
+        c.dataset.mode = sel.value === "__add__" ? "add" : "custom";
+        sel.style.display = "none"; free.style.display = "";
+        hid.value = inp.value.trim(); inp.focus();
+      } else { c.dataset.mode = ""; hid.value = sel.value; }
+      fire();
+    });
+    inp.addEventListener("input", () => { hid.value = inp.value.trim(); fire(); });
+    el(".combo-back", c).addEventListener("click", () => {
+      free.style.display = "none"; sel.style.display = ""; c.dataset.mode = "";
+      if (["__add__", "__custom__"].includes(sel.value)) sel.selectedIndex = 0;
+      hid.value = ["__add__", "__custom__"].includes(sel.value) ? "" : sel.value;
+      fire();
+    });
+  });
+}
+/* swap the option list of an existing combo (e.g. categories depend on selected group) */
+function setComboOptions(c, options, listKey) {
+  const sel = el(".combo-select", c), hid = el("input[type=hidden]", c);
+  if (listKey !== undefined) c.dataset.list = listKey;
+  const allowEmpty = sel.dataset.allowEmpty === "1";
+  sel.innerHTML = (allowEmpty ? `<option value="">—</option>` : "") +
+    options.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join("") +
+    `<option value="__add__">➕ Add new (save for reuse)</option>
+     <option value="__custom__">✏️ Custom (this entry only)</option>`;
+  if (c.dataset.mode !== "add" && c.dataset.mode !== "custom") {
+    if (options.includes(hid.value)) sel.value = hid.value;
+    else { sel.selectedIndex = 0; hid.value = allowEmpty ? "" : (options[0] || ""); }
+  }
+}
 function fieldHTML(f) {
   const v = f.value !== undefined && f.value !== null ? esc(f.value) : "";
+  if (f.type === "combo") {
+    const options = (f.options || (f.listKey ? predList(f.listKey) : [])).slice();
+    const isCustom = !!f.value && !options.includes(f.value);
+    return `<label class="fld combo" data-list="${esc(f.listKey || "")}" data-mode="${isCustom ? "custom" : ""}">
+      <span>${esc(f.label)}</span>
+      <input type="hidden" name="${f.name}" value="${v}">
+      <select class="combo-select" data-allow-empty="${f.allowEmpty ? 1 : 0}" ${isCustom ? 'style="display:none"' : ""}>
+        ${f.allowEmpty ? `<option value=""${!f.value ? " selected" : ""}>—</option>` : ""}
+        ${options.map(o => `<option value="${esc(o)}"${String(o) === String(f.value) ? " selected" : ""}>${esc(o)}</option>`).join("")}
+        <option value="__add__">➕ Add new (save for reuse)</option>
+        <option value="__custom__">✏️ Custom (this entry only)</option>
+      </select>
+      <div class="combo-free" ${isCustom ? "" : 'style="display:none"'}>
+        <input class="combo-input" type="text" value="${isCustom ? v : ""}" placeholder="Type a value…">
+        <button type="button" class="icon-btn combo-back" title="Back to list">↩</button>
+      </div></label>`;
+  }
   if (f.type === "select")
     return `<label class="fld"><span>${esc(f.label)}</span><select name="${f.name}">${
       f.options.map(o => { const [val, lab] = Array.isArray(o) ? o : [o, o];
@@ -187,13 +343,14 @@ function fieldHTML(f) {
   if (f.type === "checkbox")
     return `<label class="fld"><span>${esc(f.label)}</span><input type="checkbox" name="${f.name}"${f.value ? " checked" : ""}></label>`;
   return `<label class="fld"><span>${esc(f.label)}</span><input name="${f.name}" type="${f.type || "text"}" value="${v}"
+    ${f.type === "number" ? `min="${f.min ?? 0}"` : ""}
     ${f.step ? `step="${f.step}"` : ""} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ""} ${f.required ? "required" : ""}></label>`;
 }
-function confirmModal(msg, onYes) {
+function confirmModal(msg, onYes, label) {
   const ov = openModal(`<h3>Confirm</h3><p>${esc(msg)}</p>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn danger" id="cy">Delete</button>
+      <button class="btn danger" id="cy">${esc(label || "Delete")}</button>
     </div>`);
   el("#cy", ov).onclick = () => { closeModal(); onYes(); };
 }
@@ -247,9 +404,15 @@ function donutChart(items, size) {
 }
 
 /* ================= aggregations ================= */
+/* CTC = Gross + CTC-only items · In-Hand = Gross − Deductions (all computed) */
+function incomeTotals(p) {
+  const gross = (p.components || []).filter(c => c.scope !== "ctc").reduce((s, c) => s + num(c.amount), 0);
+  const ctcOnly = (p.components || []).filter(c => c.scope === "ctc").reduce((s, c) => s + num(c.amount), 0);
+  const ded = (p.deductions || []).reduce((s, c) => s + num(c.amount), 0);
+  return { gross, ctcOnly, ctc: gross + ctcOnly, ded, inHand: gross - ded };
+}
 function totalInHand() {
-  return (DB.income.persons || []).reduce((s, p) =>
-    s + (p.inHand || []).reduce((a, c) => a + num(c.amount), 0), 0);
+  return (DB.income.persons || []).reduce((s, p) => s + incomeTotals(p).inHand, 0);
 }
 function totalExpenses() {        // recurring monthly outflow incl. investments & loan EMIs
   return DB.expenses.reduce((s, e) => s + num(e.amount), 0)
@@ -334,43 +497,64 @@ PAGES.dashboard = () => {
 };
 
 /* ================= INCOME ================= */
-const INCOME_SECTIONS = [["ctc","Monthly CTC"],["gross","Gross Income"],["deductions","Deductions"],["inHand","In-Hand Salary"]];
 PAGES.income = () => {
   const persons = DB.income.persons || [];
-  return pageHead("Income", "Salary structure per earning member — click any amount to edit",
+  const dl = k => predList(k).map(o => `<option value="${esc(o)}">`).join("");
+  return pageHead("Income",
+    "Enter each component once. <b>CTC = Gross + CTC-only benefits</b> · <b>In-Hand = Gross − Deductions</b> — totals compute automatically",
     `<button class="btn" onclick="addEarner()">+ Add Earner</button>`) +
-    (persons.length ? persons.map((p, pi) => {
-      const sections = INCOME_SECTIONS.map(([key, label]) => {
-        const rows = (p[key] || []).map((c, ci) => `
-          <tr><td><input class="inline-input wide" value="${esc(c.component)}" onchange="updIncome(${pi},'${key}',${ci},'component',this.value)"></td>
-          <td class="num"><input class="inline-input" value="${num(c.amount)}" onchange="updIncome(${pi},'${key}',${ci},'amount',this.value)"></td>
-          <td style="width:30px"><button class="icon-btn danger" title="Remove" onclick="delIncome(${pi},'${key}',${ci})">✕</button></td></tr>`).join("");
-        const sub = (p[key] || []).reduce((s, c) => s + num(c.amount), 0);
-        return `<div class="panel"><h2>${label} <button class="btn small secondary" onclick="addIncomeRow(${pi},'${key}')">+ Row</button></h2>
-          <div class="table-wrap"><table><thead><tr><th>Component</th><th class="num">Amount</th><th></th></tr></thead>
-          <tbody>${rows}<tr class="subtotal"><td>Subtotal</td><td class="num">${fmtMoney(sub)}</td><td></td></tr></tbody></table></div></div>`;
-      }).join("");
-      const ctc = (p.ctc || []).reduce((s, c) => s + num(c.amount), 0);
-      const gross = (p.gross || []).reduce((s, c) => s + num(c.amount), 0);
-      const ded = (p.deductions || []).reduce((s, c) => s + num(c.amount), 0);
-      const ih = (p.inHand || []).reduce((s, c) => s + num(c.amount), 0);
-      return `<div class="panel" style="background:#10182c;color:#fff">
-        <h2 style="color:#fff">${esc(p.name)}
-          <span><button class="btn small secondary" onclick="renameEarner(${pi})">Rename</button>
-          <button class="btn small danger" onclick="delEarner(${pi})">Delete</button></span></h2>
-        <div class="grid kpis" style="margin-bottom:0">
-          <div class="kpi"><div class="label">Monthly CTC</div><div class="value">${fmtMoney(ctc)}</div></div>
-          <div class="kpi"><div class="label">Gross</div><div class="value">${fmtMoney(gross)}</div></div>
-          <div class="kpi"><div class="label">Deductions</div><div class="value neg">${fmtMoney(ded)}</div></div>
-          <div class="kpi"><div class="label">In-Hand</div><div class="value pos">${fmtMoney(ih)}</div>
-            <div class="delta muted">gross − deductions = ${fmtMoney(gross - ded)}</div></div>
-        </div></div>
-        <div class="grid two-col">${sections}</div>`;
-    }).join("") : '<div class="panel"><div class="empty">No earners yet — add one to start.</div></div>');
+    `<datalist id="dlIncomeComp">${dl("incomeComponents")}</datalist>
+     <datalist id="dlDedComp">${dl("deductionComponents")}</datalist>` +
+    (persons.length ? persons.map((p, pi) => incomeEarnerHTML(p, pi)).join("")
+      : '<div class="panel"><div class="empty">No earners yet — add one to start.</div></div>');
 };
+function incomeEarnerHTML(p, pi) {
+  const t = incomeTotals(p);
+  const compRows = (p.components || []).map((c, ci) => `
+    <tr><td><input class="inline-input wide" list="dlIncomeComp" value="${esc(c.component)}" onchange="updComp(${pi},${ci},'component',this.value)"></td>
+    <td><select class="inline-select" onchange="updComp(${pi},${ci},'scope',this.value)">
+      <option value="gross"${c.scope !== "ctc" ? " selected" : ""}>Gross (counts in CTC)</option>
+      <option value="ctc"${c.scope === "ctc" ? " selected" : ""}>CTC only</option></select></td>
+    <td class="num"><input class="inline-input" value="${num(c.amount)}" onchange="updComp(${pi},${ci},'amount',this.value)"></td>
+    <td style="width:30px"><button class="icon-btn danger" title="Remove" onclick="delComp(${pi},${ci})">✕</button></td></tr>`).join("");
+  const dedRows = (p.deductions || []).map((c, ci) => `
+    <tr><td><input class="inline-input wide" list="dlDedComp" value="${esc(c.component)}" onchange="updDed(${pi},${ci},'component',this.value)"></td>
+    <td class="num"><input class="inline-input" value="${num(c.amount)}" onchange="updDed(${pi},${ci},'amount',this.value)"></td>
+    <td style="width:30px"><button class="icon-btn danger" title="Remove" onclick="delDed(${pi},${ci})">✕</button></td></tr>`).join("");
+  return `<div class="panel earner-head">
+    <h2 style="color:#fff">${esc(p.name)}
+      <span><button class="btn small secondary" onclick="renameEarner(${pi})">Rename</button>
+      <button class="btn small danger" onclick="delEarner(${pi})">Delete</button></span></h2>
+    <div class="grid kpis" style="margin-bottom:0">
+      <div class="kpi"><div class="label">Monthly CTC</div><div class="value">${fmtMoney(t.ctc)}</div>
+        <div class="delta muted">gross + ${fmtMoney(t.ctcOnly)} CTC-only</div></div>
+      <div class="kpi"><div class="label">Gross Income</div><div class="value">${fmtMoney(t.gross)}</div></div>
+      <div class="kpi"><div class="label">Deductions</div><div class="value neg">${fmtMoney(t.ded)}</div></div>
+      <div class="kpi"><div class="label">In-Hand (computed)</div><div class="value pos">${fmtMoney(t.inHand)}</div>
+        <div class="delta muted">gross − deductions</div></div>
+    </div></div>
+  <div class="grid two-col">
+    <div class="panel"><h2>Salary Components <button class="btn small secondary" onclick="addComp(${pi})">+ Row</button></h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Component</th><th>Counted In</th><th class="num">Amount</th><th></th></tr></thead>
+        <tbody>${compRows}
+          <tr class="subtotal"><td>Gross subtotal</td><td></td><td class="num">${fmtMoney(t.gross)}</td><td></td></tr>
+          <tr class="subtotal"><td>Monthly CTC</td><td></td><td class="num">${fmtMoney(t.ctc)}</td><td></td></tr>
+        </tbody></table></div>
+      <p class="muted small mt">"CTC only" = employer-side money not paid in gross (e.g. Employer PF).</p></div>
+    <div class="panel"><h2>Deductions <button class="btn small secondary" onclick="addDed(${pi})">+ Row</button></h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Deduction</th><th class="num">Amount</th><th></th></tr></thead>
+        <tbody>${dedRows}
+          <tr class="subtotal"><td>Total deductions</td><td class="num">${fmtMoney(t.ded)}</td><td></td></tr>
+          <tr class="subtotal"><td>In-Hand (gross − deductions)</td><td class="num ${t.inHand >= 0 ? "pos" : "neg"}">${fmtMoney(t.inHand)}</td><td></td></tr>
+        </tbody></table></div>
+      ${t.inHand < 0 ? '<p class="small neg mt">⚠ Deductions exceed gross — check the amounts.</p>' : ""}</div>
+  </div>`;
+}
 function addEarner() {
   formModal("Add earning member", [{ name: "name", label: "Name", required: true }], v => {
-    DB.income.persons.push({ name: v.name, ctc: [], gross: [], deductions: [], inHand: [] });
+    DB.income.persons.push({ name: v.name, components: [], deductions: [] });
     if (!DB.settings.persons.includes(v.name)) DB.settings.persons.push(v.name);
     closeModal(); save(); render();
   });
@@ -386,68 +570,161 @@ function delEarner(pi) {
     DB.income.persons.splice(pi, 1); save(); render();
   });
 }
-function addIncomeRow(pi, key) {
-  DB.income.persons[pi][key] = DB.income.persons[pi][key] || [];
-  DB.income.persons[pi][key].push({ component: "New component", amount: 0 });
+function addComp(pi) { DB.income.persons[pi].components.push({ component: "New component", amount: 0, scope: "gross" }); save(); render(); }
+function addDed(pi) { DB.income.persons[pi].deductions.push({ component: "New deduction", amount: 0 }); save(); render(); }
+function updComp(pi, ci, field, val) {
+  const c = DB.income.persons[pi].components[ci];
+  if (field === "amount") {
+    const r = validAmount(val);
+    if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
+    c.amount = r.n;
+  } else if (field === "component") {
+    if (!val.trim()) { toast("Component name can't be empty", true); render(); return; }
+    c.component = val.trim(); addPred("incomeComponents", c.component);
+  } else c[field] = val;
   save(); render();
 }
-function updIncome(pi, key, ci, field, val) {
-  DB.income.persons[pi][key][ci][field] = field === "amount" ? num(val) : val;
+function updDed(pi, ci, field, val) {
+  const c = DB.income.persons[pi].deductions[ci];
+  if (field === "amount") {
+    const r = validAmount(val);
+    if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
+    c.amount = r.n;
+  } else {
+    if (!val.trim()) { toast("Deduction name can't be empty", true); render(); return; }
+    c.component = val.trim(); addPred("deductionComponents", c.component);
+  }
   save(); render();
 }
-function delIncome(pi, key, ci) { DB.income.persons[pi][key].splice(ci, 1); save(); render(); }
+function delComp(pi, ci) { DB.income.persons[pi].components.splice(ci, 1); save(); render(); }
+function delDed(pi, ci) { DB.income.persons[pi].deductions.splice(ci, 1); save(); render(); }
 
 /* ================= EXPENSES ================= */
+function groupDim(g) {
+  const meta = DB.settings.predefined.expenseGroupMeta || {};
+  return (meta[g] && meta[g].dim) || "none";
+}
+const DIM_LABEL = { location: "Location", person: "Person", none: "" };
 PAGES.expenses = () => {
   const groups = {};
   DB.expenses.forEach((e, i) => {
     const g = e.group || "Other";
     (groups[g] = groups[g] || []).push([e, i]);
   });
+  /* sections created explicitly but still empty */
+  Object.entries(DB.settings.predefined.expenseGroupMeta || {}).forEach(([g, m]) => {
+    if (m.created && !groups[g]) groups[g] = [];
+  });
   const total = pureExpenses();
   const emiTotal = activeLoans().reduce((s, L) => s + loanState(L).emi, 0);
   const invTotal = DB.monthlyInvestments.filter(i => (i.deductedFrom || "IN HAND") === "IN HAND").reduce((s, i) => s + num(i.amount), 0);
   return pageHead("Monthly Expenses",
     `Recurring spend: <b>${fmtMoney(total)}</b> &nbsp;·&nbsp; + loan EMIs ${fmtMoney(emiTotal)} &nbsp;·&nbsp; + in-hand investments ${fmtMoney(invTotal)} &nbsp;=&nbsp; <b>${fmtMoney(total + emiTotal + invTotal)}</b> total outflow`,
-    `<button class="btn" onclick="addExpense()">+ Add Expense</button>`) +
-    Object.entries(groups).map(([g, items]) => {
+    `<button class="btn" onclick="addExpense()">+ Add Expense</button>
+     <button class="btn secondary" onclick="addExpenseSection()">+ Add Section</button>`) +
+    (Object.entries(groups).map(([g, items]) => {
       const sub = items.reduce((s, [e]) => s + num(e.amount), 0);
-      return `<div class="panel"><h2>${esc(g)} <span class="chip">${fmtMoney(sub)}</span></h2>
+      const dim = groupDim(g);
+      return `<div class="panel"><h2>${esc(g)} <span class="chip">${fmtMoney(sub)}</span>
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          <span class="chip gray" title="What each entry tracks besides category">${dim === "none" ? "category only" : "by " + dim}</span>
+          <button class="btn small ghost" title="Section settings" onclick="editExpenseSection('${esc(g)}')">⚙</button>
+          <button class="btn small secondary" onclick="addExpense('${esc(g)}')">+ Add</button></span></h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Category</th><th>Location / Person</th><th class="num">Monthly Cost</th><th style="width:70px"></th></tr></thead>
+        <thead><tr><th>Category</th>${dim !== "none" ? `<th>${DIM_LABEL[dim]}</th>` : ""}<th class="num">Monthly Cost</th><th style="width:70px"></th></tr></thead>
         <tbody>${items.map(([e, i]) => `
-          <tr><td>${esc(e.category)}</td><td class="muted">${esc(e.location || e.person || "—")}</td>
+          <tr><td>${esc(e.category)}</td>${dim !== "none" ? `<td class="muted">${esc((dim === "location" ? e.location : e.person) || "—")}</td>` : ""}
           <td class="num"><input class="inline-input" value="${num(e.amount)}" onchange="updExpense(${i},this.value)"></td>
           <td><button class="icon-btn" title="Edit" onclick="editExpense(${i})">✎</button>
-              <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`).join("")}
+              <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`).join("")
+          || `<tr><td colspan="4" class="muted">No entries yet — click + Add.</td></tr>`}
         </tbody></table></div></div>`;
-    }).join("") || '<div class="panel"><div class="empty">No expenses yet.</div></div>';
+    }).join("") || '<div class="panel"><div class="empty">No expenses yet.</div></div>');
 };
-function expenseFields(e) {
+function addExpenseSection(g) {
+  const meta = DB.settings.predefined.expenseGroupMeta;
+  const existing = g ? meta[g] : null;
+  formModal(g ? `Section settings — ${g}` : "Add expense section", [
+    ...(g ? [] : [{ name: "name", label: "Section name (e.g. Housing, Food…)", required: true }]),
+    { name: "dim", label: "Besides category & amount, each entry tracks…", type: "select",
+      value: existing ? existing.dim : "none",
+      options: [["none", "Nothing — just category & amount"], ["location", "Location"], ["person", "Person"]] },
+  ], v => {
+    const name = g || v.name;
+    addPred("expenseGroups", name);
+    meta[name] = Object.assign(meta[name] || {}, { dim: v.dim, created: true });
+    closeModal(); save(); render();
+  });
+}
+function editExpenseSection(g) { addExpenseSection(g); }
+function expenseFields(e, presetGroup) {
   e = e || {};
-  const groups = [...new Set(DB.expenses.map(x => x.group).filter(Boolean))];
+  const g = e.group || presetGroup || predList("expenseGroups")[0] || "Other";
   return [
-    { name: "group", label: "Group (e.g. Housing, Food, Insurance…)", value: e.group || "", placeholder: groups.join(", ") || "Housing", required: true },
-    { name: "category", label: "Category", value: e.category || "", required: true },
-    { type: "row", fields: [
-      { name: "location", label: "Location (optional)", value: e.location || "" },
-      { name: "amount", label: "Monthly cost", type: "number", step: "any", value: e.amount ?? "", required: true }]},
+    { name: "group", label: "Section / Group", type: "combo", listKey: "expenseGroups", value: g },
+    { name: "category", label: "Category", type: "combo", listKey: "expenseCategories:" + g,
+      value: e.category || "", options: predList("expenseCategories:" + g) },
+    { name: "dimMode", label: "This section tracks", type: "select", value: groupDim(g),
+      options: [["none", "Nothing — just category & amount"], ["location", "Location"], ["person", "Person"]] },
+    { name: "location", label: "Location", type: "combo", listKey: "locations", value: e.location || "", allowEmpty: true },
+    { name: "person", label: "Person", type: "combo", listKey: "persons", value: e.person || "", allowEmpty: true },
+    { name: "amount", label: "Monthly cost", type: "number", step: "any", value: e.amount ?? "", required: true },
     { name: "notes", label: "Notes (optional)", value: e.notes || "" },
   ];
 }
-function addExpense() {
-  formModal("Add expense", expenseFields(), v => {
-    DB.expenses.push({ id: uid(), group: v.group, category: v.category, location: v.location, amount: num(v.amount), notes: v.notes });
-    closeModal(); save(); render();
+/* show/hide location & person fields based on the chosen group's dimension */
+function wireExpenseModal(ov) {
+  const groupCombo = els(".combo", ov).find(c => el("input[type=hidden]", c).name === "group");
+  const catCombo = els(".combo", ov).find(c => el("input[type=hidden]", c).name === "category");
+  const dimSel = el('[name="dimMode"]', ov);
+  const fldOf = n => el(`[name="${n}"]`, ov).closest(".fld");
+  const sync = () => {
+    const dim = dimSel.value;
+    fldOf("location").style.display = dim === "location" ? "" : "none";
+    fldOf("person").style.display = dim === "person" ? "" : "none";
+  };
+  dimSel.addEventListener("change", sync);
+  groupCombo.addEventListener("combochange", () => {
+    const g = el("input[type=hidden]", groupCombo).value || "Other";
+    setComboOptions(catCombo, predList("expenseCategories:" + g), "expenseCategories:" + g);
+    dimSel.value = groupDim(g);
+    sync();
   });
+  sync();
+}
+function expenseVals(v) {
+  return { group: v.group || "Other", category: v.category,
+    location: v.dimMode === "location" ? v.location : "",
+    person: v.dimMode === "person" ? v.person : "",
+    amount: num(v.amount), notes: v.notes };
+}
+function saveExpenseMeta(v) {
+  const meta = DB.settings.predefined.expenseGroupMeta;
+  const g = v.group || "Other";
+  addPred("expenseGroups", g);
+  meta[g] = Object.assign(meta[g] || {}, { dim: v.dimMode });
+}
+function addExpense(presetGroup) {
+  formModal("Add expense", expenseFields(null, presetGroup), v => {
+    if (!v.category) return toast("Please choose or enter a category", true);
+    saveExpenseMeta(v);
+    DB.expenses.push({ id: uid(), ...expenseVals(v) });
+    closeModal(); save(); render();
+  }, { onReady: wireExpenseModal });
 }
 function editExpense(i) {
   formModal("Edit expense", expenseFields(DB.expenses[i]), v => {
-    Object.assign(DB.expenses[i], { group: v.group, category: v.category, location: v.location, amount: num(v.amount), notes: v.notes });
+    if (!v.category) return toast("Please choose or enter a category", true);
+    saveExpenseMeta(v);
+    Object.assign(DB.expenses[i], expenseVals(v));
     closeModal(); save(); render();
-  });
+  }, { onReady: wireExpenseModal });
 }
-function updExpense(i, val) { DB.expenses[i].amount = num(val); save(); render(); }
+function updExpense(i, val) {
+  const r = validAmount(val);
+  if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
+  DB.expenses[i].amount = r.n; save(); render();
+}
 function delExpense(i) {
   confirmModal(`Delete "${DB.expenses[i].category}"?`, () => { DB.expenses.splice(i, 1); save(); render(); });
 }
@@ -478,26 +755,32 @@ PAGES.investments = () => {
 function investmentFields(iv) {
   iv = iv || {};
   return [
-    { name: "category", label: "Instrument (e.g. NPS, PF, MF SIP, Gold Scheme…)", value: iv.category || "", required: true },
+    { name: "category", label: "Instrument", type: "combo", listKey: "investmentInstruments", value: iv.category || "" },
     { type: "row", fields: [
-      { name: "person", label: "Person", type: "select", value: iv.person || "", options: ["", ...DB.settings.persons] },
+      { name: "person", label: "Person", type: "combo", listKey: "persons", value: iv.person || "", allowEmpty: true },
       { name: "deductedFrom", label: "Deducted from", type: "select", value: iv.deductedFrom || "IN HAND", options: ["IN HAND", "GROSS", "CTC"] }]},
     { name: "amount", label: "Monthly amount", type: "number", step: "any", value: iv.amount ?? "", required: true },
   ];
 }
 function addInvestment() {
   formModal("Add monthly investment", investmentFields(), v => {
+    if (!v.category) return toast("Please choose or enter an instrument", true);
     DB.monthlyInvestments.push({ id: uid(), category: v.category, person: v.person, deductedFrom: v.deductedFrom, amount: num(v.amount) });
     closeModal(); save(); render();
   });
 }
 function editInvestment(i) {
   formModal("Edit monthly investment", investmentFields(DB.monthlyInvestments[i]), v => {
+    if (!v.category) return toast("Please choose or enter an instrument", true);
     Object.assign(DB.monthlyInvestments[i], { category: v.category, person: v.person, deductedFrom: v.deductedFrom, amount: num(v.amount) });
     closeModal(); save(); render();
   });
 }
-function updInvestment(i, val) { DB.monthlyInvestments[i].amount = num(val); save(); render(); }
+function updInvestment(i, val) {
+  const r = validAmount(val);
+  if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
+  DB.monthlyInvestments[i].amount = r.n; save(); render();
+}
 function delInvestment(i) {
   confirmModal(`Delete "${DB.monthlyInvestments[i].category}"?`, () => { DB.monthlyInvestments.splice(i, 1); save(); render(); });
 }
@@ -550,10 +833,9 @@ PAGES.portfolio = () => {
 function holdingFields(p) {
   p = p || {};
   return [
-    { name: "category", label: "Asset name (e.g. NPS, Stocks, Mutual Funds…)", value: p.category || "", required: true },
+    { name: "category", label: "Asset name", type: "combo", listKey: "assetNames", value: p.category || "", required: true },
     { type: "row", fields: [
-      { name: "subCategory", label: "Asset class", type: "select", value: p.subCategory || "Equity",
-        options: ["Equity", "Debt", "Fixed", "Real estate", "Liquidity", "Gold", "Other"] },
+      { name: "subCategory", label: "Asset class", type: "combo", listKey: "assetClasses", value: p.subCategory || "Equity" },
       { name: "owner", label: "Owner", type: "select", value: p.owner || "", options: ["", ...DB.settings.persons, "Family"] }]},
     { type: "row", fields: [
       { name: "invested", label: "Amount invested", type: "number", step: "any", value: p.invested ?? "", required: true },
@@ -582,7 +864,7 @@ function delHolding(i) {
 }
 function addGold() {
   formModal("Add physical gold", [
-    { name: "person", label: "Person", required: true },
+    { name: "person", label: "Person", type: "combo", listKey: "persons", required: true },
     { type: "row", fields: [
       { name: "grams", label: "Grams", type: "number", step: "any", required: true },
       { name: "perGramValue", label: "Per-gram value", type: "number", step: "any", required: true }]},
@@ -601,7 +883,8 @@ PAGES.loans = () => {
   const totBal = act.reduce((s, [L]) => s + loanState(L).balance, 0);
   const totEMI = act.reduce((s, [L]) => s + loanState(L).emi, 0);
   return pageHead("Loans & Debts",
-    `Outstanding <b>${fmtMoney(totBal)}</b> across ${act.length} active loan(s) · ${fmtMoney(totEMI)}/month in EMIs`,
+    `Outstanding <b>${fmtMoney(totBal)}</b> across ${act.length} active loan(s) · ${fmtMoney(totEMI)}/month in EMIs
+     <br><span class="muted">As of ${fmtDate(new Date().toISOString())} — EMIs paid, balances and months left update automatically from each loan's start date</span>`,
     `<button class="btn" onclick="addLoanFull()">+ New Loan</button>
      <button class="btn secondary" onclick="addLoanMidway()">+ Add Existing Loan (midway)</button>
      <button class="btn ghost" onclick="emiCalculator()">EMI Calculator</button>`) +
@@ -634,6 +917,7 @@ function loanCardHTML(L, i) {
       <div><span>Principal</span><b>${fmtMoney(num(L.principal))}</b></div>
       <div><span>Total Interest</span><b>${fmtMoney(st.totalInterest)}</b></div>
       <div><span>Total Payable</span><b>${fmtMoney(st.totalPayable)}</b></div>
+      <div><span>EMIs Paid</span><b>${st.paidMonths}</b></div>
       <div><span>Months Left</span><b>${st.remMonths} / ${st.sched.rows.length}</b></div>
     </div>
     <div class="progress"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>
@@ -647,7 +931,7 @@ function addLoanFull() {
   formModal("New loan (from the beginning)", [
     { name: "name", label: "Loan name", required: true },
     { type: "row", fields: [
-      { name: "lender", label: "Lender / bank (optional)" },
+      { name: "lender", label: "Lender / bank (optional)", type: "combo", listKey: "lenders", allowEmpty: true },
       { name: "startDate", label: "First EMI month", type: "month", value: new Date().toISOString().slice(0, 7) }]},
     { type: "row", fields: [
       { name: "principal", label: "Principal amount", type: "number", step: "any", required: true },
@@ -667,7 +951,7 @@ function addLoanFull() {
 function addLoanMidway() {
   formModal("Add a loan you're already paying (midway)", [
     { name: "name", label: "Loan name", required: true },
-    { name: "lender", label: "Lender / bank (optional)" },
+    { name: "lender", label: "Lender / bank (optional)", type: "combo", listKey: "lenders", allowEmpty: true },
     { type: "row", fields: [
       { name: "emi", label: "Monthly EMI you pay", type: "number", step: "any", required: true },
       { name: "remMonths", label: "Months remaining", type: "number", required: true }]},
@@ -689,7 +973,7 @@ function editLoan(i) {
   formModal("Edit loan", [
     { name: "name", label: "Loan name", value: L.name, required: true },
     { type: "row", fields: [
-      { name: "lender", label: "Lender", value: L.lender || "" },
+      { name: "lender", label: "Lender", type: "combo", listKey: "lenders", value: L.lender || "", allowEmpty: true },
       { name: "startDate", label: "First EMI month", type: "month", value: (L.startDate || "").slice(0, 7) }]},
     { type: "row", fields: [
       { name: "principal", label: "Principal", type: "number", step: "any", value: L.principal },
@@ -810,7 +1094,7 @@ function goalFields(g) {
   return [
     { name: "name", label: "Goal name", value: g.name || "", required: true },
     { type: "row", fields: [
-      { name: "type", label: "Type (Car Loan, Family Function…)", value: g.type || "" },
+      { name: "type", label: "Type", type: "combo", listKey: "goalTypes", value: g.type || "", allowEmpty: true },
       { name: "estimatedDate", label: "Estimated date", type: "date", value: (g.estimatedDate || "").slice(0, 10) }]},
     { type: "row", fields: [
       { name: "value", label: "Total value", type: "number", step: "any", value: g.value ?? "", required: true },
@@ -848,7 +1132,8 @@ function goalToLoan(i) {
 }
 
 /* ================= CARDS ================= */
-let cardFilter = { owner: "", type: "", status: "active", q: "" };
+let cardFilter = { owner: "", type: "", bank: "", status: "active", q: "" };
+const NO_BANK = "No Bank / Other";   // category for cards where a bank doesn't apply (Priority Pass, food cards…)
 let revealed = {};   // cardId -> bool (session only, never persisted)
 const CARD_COLORS = ["linear-gradient(135deg,#243b80,#3a5fd0)","linear-gradient(135deg,#5b2580,#9347c9)",
   "linear-gradient(135deg,#0e6e52,#19b285)","linear-gradient(135deg,#8a3324,#d2693a)",
@@ -863,9 +1148,15 @@ function groupDigits(n) { return String(n || "").replace(/\s+/g, "").replace(/(.
 PAGES.cards = () => {
   const owners = [...new Set(DB.cards.map(c => c.owner).filter(Boolean))];
   const types = [...new Set(DB.cards.map(c => c.type).filter(Boolean))];
+  const banks = [...new Set(DB.cards.map(c => (c.bank || "").trim()).filter(Boolean))].sort();
+  const hasNoBank = DB.cards.some(c => !(c.bank || "").trim());
   const list = DB.cards.map((c, i) => [c, i]).filter(([c]) => {
     if (cardFilter.owner && c.owner !== cardFilter.owner) return false;
     if (cardFilter.type && c.type !== cardFilter.type) return false;
+    if (cardFilter.bank) {
+      const b = (c.bank || "").trim();
+      if (cardFilter.bank === "__none__" ? !!b : b !== cardFilter.bank) return false;
+    }
     const st = c.status === "closed" ? "closed" : "active";
     if (cardFilter.status && st !== cardFilter.status) return false;
     if (cardFilter.q && !(c.name + " " + c.bank + " " + (c.variant || "")).toLowerCase().includes(cardFilter.q.toLowerCase())) return false;
@@ -876,6 +1167,9 @@ PAGES.cards = () => {
   return pageHead("Cards", `${activeN} active card(s) · annual fees ${fmtMoney(feesTotal)} · details stay in your local data file`,
     `<button class="btn" onclick="addCard()">+ Add Card</button>`) + `
   <div class="filter-bar">
+    <select onchange="cardFilter.bank=this.value;render()">
+      <option value="">All banks</option>${banks.map(b => `<option value="${esc(b)}"${cardFilter.bank === b ? " selected" : ""}>${esc(b)}</option>`).join("")}
+      ${hasNoBank ? `<option value="__none__"${cardFilter.bank === "__none__" ? " selected" : ""}>${NO_BANK}</option>` : ""}</select>
     <select onchange="cardFilter.owner=this.value;render()">
       <option value="">All owners</option>${owners.map(o => `<option${cardFilter.owner === o ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>
     <select onchange="cardFilter.type=this.value;render()">
@@ -891,7 +1185,7 @@ PAGES.cards = () => {
     return `<div class="pay-card${c.status === "closed" ? " closed" : ""}" style="background:${cardColor(c)}">
       <div class="pc-top"><div>
         <div class="pc-name">${esc(c.name)}</div>
-        <div class="small" style="opacity:.85">${esc(c.bank || "")} · ${esc(c.type || "")}${c.variant ? " · " + esc(c.variant) : ""}${c.variantSubType ? " " + esc(c.variantSubType) : ""}</div>
+        <div class="small" style="opacity:.85">${esc((c.bank || "").trim() || NO_BANK)} · ${esc(c.type || "")}${c.variant ? " · " + esc(c.variant) : ""}${c.variantSubType ? " " + esc(c.variantSubType) : ""}</div>
       </div></div>
       <div class="pc-actions">
         <button class="icon-btn" title="${r ? "Hide" : "Reveal"} details" onclick="toggleReveal('${c.id}')">${r ? "🙈" : "👁"}</button>
@@ -924,12 +1218,11 @@ function cardFields(c) {
   return [
     { name: "name", label: "Card name (e.g. HDFC Regalia Gold)", value: c.name || "", required: true },
     { type: "row", fields: [
-      { name: "bank", label: "Bank", value: c.bank || "" },
+      { name: "bank", label: "Bank (leave empty if not applicable)", type: "combo", listKey: "banks", value: c.bank || "", allowEmpty: true },
       { name: "owner", label: "Owner", type: "select", value: c.owner || "", options: ["", ...DB.settings.persons] }]},
     { type: "row", fields: [
-      { name: "type", label: "Type", type: "select", value: c.type || "Credit",
-        options: ["Credit", "Debit", "Credit Virtual", "Debit Virtual", "Food Card", "Priority Pass", "Other"] },
-      { name: "variant", label: "Network (VISA / MasterCard / RuPay…)", value: c.variant || "" }]},
+      { name: "type", label: "Type", type: "combo", listKey: "cardTypes", value: c.type || "Credit" },
+      { name: "variant", label: "Network", type: "combo", listKey: "networks", value: c.variant || "", allowEmpty: true }]},
     { name: "number", label: "Card number", value: c.number || "" },
     { type: "row", fields: [
       { name: "expiry", label: "Expiry", type: "month", value: (c.expiry || "").slice(0, 7) },
@@ -1075,8 +1368,11 @@ PAGES.settings = () => {
       <button class="btn secondary small" onclick="addPerson()">+ Add person</button>
       <p class="muted small mt">People appear as owners for portfolio, cards and investments.</p>
     </div>
-    <div class="panel"><h2>Backup & Restore</h2>
-      <p class="muted small mb">All data lives in <b>data/finances.json</b> next to the app (plus uploaded files in data/files/). Copy the whole <b>data</b> folder to move machines; daily backups are kept in data/backups/.</p>
+    <div class="panel"><h2>Backup & Restore <button class="btn small" onclick="backupNow()">🗄 Backup now</button></h2>
+      <p class="muted small mb">All data lives in <b>data/finances.json</b> (plus uploaded files in data/files/).
+      <b>Automatic:</b> the first time you save anything each day, a snapshot is stored in data/backups/ (last 14 daily backups kept).
+      <b>Manual:</b> click "Backup now" anytime — manual backups are never auto-deleted. Restore replaces current data (a safety backup is taken first).</p>
+      <div id="bakList" class="mb"><div class="empty">Loading backups…</div></div>
       <button class="btn secondary" onclick="exportData()">⬇ Export data (JSON)</button>
       <button class="btn ghost" onclick="el('#importFile').click()">⬆ Import data (replace)</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(this.files[0])">
@@ -1087,6 +1383,50 @@ PAGES.settings = () => {
     </div>
   </div>`;
 };
+window.after_settings = () => { refreshBackupList(); };
+async function refreshBackupList() {
+  const box = el("#bakList");
+  if (!box) return;
+  try {
+    const items = await (await fetch("/api/backups")).json();
+    box.innerHTML = items.length ? items.map(b => {
+      const kind = b.name.includes("-manual-") ? "manual" : b.name.includes("-prerestore-") ? "pre-restore safety" : "auto (daily)";
+      return `<div class="doc-row"><div class="doc-ico">🗄</div>
+        <div class="doc-main"><a href="/backups/${encodeURIComponent(b.name)}" target="_blank">${esc(b.name)}</a>
+        <div class="doc-sub">${(b.size / 1024).toFixed(1)} KB · ${fmtDateTime(b.modified)} · ${kind}</div></div>
+        <button class="btn small secondary" onclick="restoreBackup('${esc(b.name)}')">Restore</button>
+        <button class="icon-btn danger" title="Delete backup" onclick="deleteBackup('${esc(b.name)}')">✕</button></div>`;
+    }).join("") : '<div class="empty">No backups yet — one is created on your first save each day, or click "Backup now".</div>';
+  } catch (e) { box.innerHTML = '<div class="empty">Could not load backups: ' + esc(e.message) + "</div>"; }
+}
+async function backupNow() {
+  try {
+    const r = await fetch("/api/backup", { method: "POST" });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    toast("Backup created: " + j.name);
+    refreshBackupList();
+  } catch (e) { toast("Backup failed: " + e.message, true); }
+}
+function restoreBackup(name) {
+  confirmModal(`Restore "${name}"? Your current data will be replaced (a safety backup is taken first).`, async () => {
+    try {
+      const r = await fetch("/api/restore?name=" + encodeURIComponent(name), { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.status);
+      await loadDB(); render(); toast("Restored from " + name);
+    } catch (e) { toast("Restore failed: " + e.message, true); }
+  }, "Restore");
+}
+function deleteBackup(name) {
+  confirmModal(`Delete backup "${name}"?`, async () => {
+    try {
+      const r = await fetch("/api/backups/" + encodeURIComponent(name), { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json()).error || r.status);
+      refreshBackupList();
+    } catch (e) { toast("Delete failed: " + e.message, true); }
+  });
+}
 function addPerson() {
   formModal("Add family member", [{ name: "name", label: "Name", required: true }], v => {
     if (!DB.settings.persons.includes(v.name)) DB.settings.persons.push(v.name);
@@ -1119,7 +1459,7 @@ function wipeData() {
     const name = DB.settings.appName;
     DB = { schemaVersion: 1, settings: { appName: name, currency: "INR", locale: "en-IN", persons: [], locations: [] },
       income: { persons: [] }, expenses: [], monthlyInvestments: [], portfolio: [], gold: [], loans: [], goals: [], cards: [], documents: [] };
-    save(true); render();
+    migrate(); save(true); render();
   });
 }
 

@@ -36,8 +36,8 @@ Export / Import in Settings). To let someone else use the app, just give them th
 ## Features
 
 - **Dashboard** — net worth, asset allocation, monthly cashflow, loan progress, upcoming goals
-- **Income** — full salary structure per family member: CTC components, gross, deductions, in-hand (click any amount to edit)
-- **Expenses** — grouped recurring expenses by category & location with live totals
+- **Income** — relational salary structure per family member: enter each component once, marked "Gross (counts in CTC)" or "CTC only"; **CTC = Gross + CTC-only items and In-Hand = Gross − Deductions are computed automatically** with input validation
+- **Expenses** — sections with predefined category & location dropdowns ("add new for reuse" or "custom for this entry"); each section can track location, person, or just category & amount
 - **Monthly Investments** — SIPs, PF, NPS, gold schemes; tracks whether each comes from in-hand, gross or CTC
 - **Portfolio** — every holding with invested vs current value and returns, per owner, plus physical gold
 - **Loans**
@@ -46,9 +46,11 @@ Export / Import in Settings). To let someone else use the app, just give them th
   - **prepayment what-if**: see interest and months saved by paying extra each month
   - standalone EMI calculator, attach files/links to each loan, mark closed
 - **Goals** — future purchases with down-payment/loan/EMI planning; one click converts a goal into a live loan
-- **Cards** — wallet view of credit/debit cards with masked numbers (reveal on demand), benefits, lounge access, fees, activate/deactivate
+- **Cards** — wallet view of credit/debit cards with masked numbers (reveal on demand), benefits, lounge access, fees, activate/deactivate; filter by bank, owner, type (cards without a bank appear under "No Bank / Other")
 - **Documents** — drag-and-drop file storage in your data folder, plus saved links
 - **Settings** — currency & locale (works for any country), family members, export/import, full wipe
+- **Backups** — automatic daily snapshot on the first save of each day (last 14 kept) **plus** manual "Backup now", one-click restore (with pre-restore safety snapshot) and per-backup download/delete in Settings
+- **Dropdowns everywhere** — banks, card types, networks, instruments, asset classes, goal types, lenders, locations, people: pick a predefined value, save a new one for reuse, or type a one-time custom value
 
 ## Folder layout
 
