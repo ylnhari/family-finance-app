@@ -4,6 +4,8 @@
 let DB = null;            // the whole data document
 let currentPage = "dashboard";
 let saveTimer = null;
+let incomeYear = null;          // null = auto-select latest year per earner
+let incomeInputMode = "monthly"; // "monthly" | "yearly" for component entry
 
 /* ================= persistence ================= */
 async function loadDB() {
@@ -42,9 +44,15 @@ function migrate() {
   seed("cardTypes", DB.cards.map(c => c.type), ["Credit", "Debit", "Credit Virtual", "Debit Virtual", "Food Card", "Priority Pass", "Other"]);
   seed("networks", DB.cards.map(c => c.variant), ["VISA", "MasterCard", "RuPay", "AmEx"]);
   seed("lenders", DB.loans.map(L => L.lender));
-  seed("incomeComponents", (DB.income.persons || []).flatMap(p => (p.components || p.gross || []).map(c => c.component)),
+  seed("incomeComponents",
+    (DB.income.persons || []).flatMap(p =>
+      (p.salaryYears || []).flatMap(yr => (yr.components || []).map(c => c.component))
+      .concat((p.components || p.gross || []).map(c => c.component))),
     ["BASIC SALARY", "HOUSE RENT ALLOWANCE", "PERSONAL ALLOWANCE", "BONUS", "EMPLOYER PF", "EMPLOYER NPS", "SPECIAL ALLOWANCE"]);
-  seed("deductionComponents", (DB.income.persons || []).flatMap(p => (p.deductions || []).map(c => c.component)),
+  seed("deductionComponents",
+    (DB.income.persons || []).flatMap(p =>
+      (p.salaryYears || []).flatMap(yr => (yr.deductions || []).map(c => c.component))
+      .concat((p.deductions || []).map(c => c.component))),
     ["INCOME TAX (TDS)", "EMPLOYEE PF", "PROFESSIONAL TAX", "EMPLOYEE NPS"]);
 
   /* which extra dimension each expense section tracks: location | person | none */
@@ -56,13 +64,9 @@ function migrate() {
     }
   });
 
-  /* ---- income schema v2: one component list, In-Hand computed ----
-     CTC = Gross + CTC-only items; In-Hand = Gross − Deductions.
-     Old per-section data is merged; if the recorded in-hand didn't match
-     gross − deductions, the gap becomes an 'Other deductions (derived)' row
-     so displayed in-hand stays identical. */
+  /* ---- income schema v2: flatten gross/ctc/inHand into components array ---- */
   (DB.income.persons || []).forEach(p => {
-    if (p.components) return;                                  // already migrated
+    if (p.components || p.salaryYears) return;
     const gross = p.gross || [], ctc = p.ctc || [], ded = p.deductions || [], inHand = p.inHand || [];
     const grossNames = new Set(gross.map(c => (c.component || "").trim().toUpperCase()));
     p.components = gross.map(c => ({ component: c.component, amount: num(c.amount), scope: "gross" }))
@@ -75,6 +79,21 @@ function migrate() {
     const gap = grossTot - dedTot - ihTot;
     if (ihTot && gap > 1) p.deductions.push({ component: "Other deductions (derived)", amount: Math.round(gap) });
     delete p.ctc; delete p.gross; delete p.inHand;
+  });
+  /* ---- income schema v3: wrap components/deductions into salaryYears array ---- */
+  (DB.income.persons || []).forEach(p => {
+    if (p.salaryYears) return;
+    const curYear = new Date().getFullYear();
+    p.salaryYears = [{
+      year: curYear,
+      components: p.components || [],
+      deductions: p.deductions || [],
+      variablePctEligible: 0,
+      variablePctEarned: null,
+      oneTimeBonus: 0
+    }];
+    delete p.components;
+    delete p.deductions;
   });
 }
 
@@ -404,13 +423,40 @@ function donutChart(items, size) {
 }
 
 /* ================= aggregations ================= */
-/* CTC = Gross + CTC-only items · In-Hand = Gross − Deductions (all computed) */
-function incomeTotals(p) {
-  const gross = (p.components || []).filter(c => c.scope !== "ctc").reduce((s, c) => s + num(c.amount), 0);
-  const ctcOnly = (p.components || []).filter(c => c.scope === "ctc").reduce((s, c) => s + num(c.amount), 0);
-  const ded = (p.deductions || []).reduce((s, c) => s + num(c.amount), 0);
-  return { gross, ctcOnly, ctc: gross + ctcOnly, ded, inHand: gross - ded };
+function latestYearEntry(p) {
+  const yrs = p.salaryYears || [];
+  if (!yrs.length) return null;
+  return yrs.reduce((mx, y) => y.year > mx.year ? y : mx, yrs[0]);
 }
+function selectedYearEntry(p) {
+  const yrs = p.salaryYears || [];
+  if (!yrs.length) return null;
+  if (incomeYear === null) return latestYearEntry(p);
+  return yrs.find(y => y.year === incomeYear) || null;
+}
+function incomeTotalsForYear(p, yr) {
+  if (!yr) yr = { components: [], deductions: [], variablePctEligible: 0, variablePctEarned: null, oneTimeBonus: 0 };
+  const gross = (yr.components || []).filter(c => c.scope !== "ctc").reduce((s, c) => s + num(c.amount), 0);
+  const ctcOnly = (yr.components || []).filter(c => c.scope === "ctc").reduce((s, c) => s + num(c.amount), 0);
+  const ded = (yr.deductions || []).reduce((s, c) => s + num(c.amount), 0);
+  const monthlyCtc = gross + ctcOnly;
+  const yearlyCtcBase = monthlyCtc * 12;
+  const elPct = num(yr.variablePctEligible || 0) / 100;
+  const hasEarned = yr.variablePctEarned !== null && yr.variablePctEarned !== undefined && yr.variablePctEarned !== "";
+  const earnedPct = hasEarned ? num(yr.variablePctEarned) / 100 : null;
+  const varPct = earnedPct !== null ? earnedPct : elPct;
+  const variablePay = Math.round(yearlyCtcBase * varPct);
+  const oneTimeBonus = num(yr.oneTimeBonus || 0);
+  return {
+    gross, ctcOnly, ctc: monthlyCtc, ded, inHand: gross - ded,
+    monthlyCtc, yearlyCtcBase, yearlyCtc: yearlyCtcBase + variablePay,
+    variablePay, oneTimeBonus, totalBonus: variablePay + oneTimeBonus,
+    eligiblePct: num(yr.variablePctEligible || 0),
+    earnedPct: hasEarned ? num(yr.variablePctEarned) : null
+  };
+}
+/* Uses latest year always — safe for dashboard regardless of income page filter */
+function incomeTotals(p) { return incomeTotalsForYear(p, latestYearEntry(p)); }
 function totalInHand() {
   return (DB.income.persons || []).reduce((s, p) => s + incomeTotals(p).inHand, 0);
 }
@@ -499,62 +545,165 @@ PAGES.dashboard = () => {
 /* ================= INCOME ================= */
 PAGES.income = () => {
   const persons = DB.income.persons || [];
+  const allYears = [...new Set(persons.flatMap(p => (p.salaryYears || []).map(y => y.year)))].sort((a, b) => b - a);
   const dl = k => predList(k).map(o => `<option value="${esc(o)}">`).join("");
+  const hasMultiYear = persons.some(p => (p.salaryYears || []).length >= 2);
+  const modeBtn = `<button class="btn small ghost" onclick="incomeInputMode=incomeInputMode==='monthly'?'yearly':'monthly';render()">
+      ⇄ ${incomeInputMode === "monthly" ? "Switch to Yearly entry" : "Switch to Monthly entry"}</button>
+    <span class="muted small">${incomeInputMode === "yearly" ? "Entering yearly values (stored as monthly)" : "Entering monthly values"}</span>`;
+  const yearSel = allYears.length > 1 ? `<select onchange="incomeYear=this.value==='null'?null:+this.value;render()">
+      <option value="null"${incomeYear === null ? " selected" : ""}>Latest year</option>
+      ${allYears.map(y => `<option value="${y}"${incomeYear === y ? " selected" : ""}>${y}</option>`).join("")}
+    </select>` : "";
+  const controlBar = persons.length ? `<div class="filter-bar" style="margin-bottom:16px">${yearSel}${modeBtn}</div>` : "";
   return pageHead("Income",
-    "Enter each component once. <b>CTC = Gross + CTC-only benefits</b> · <b>In-Hand = Gross − Deductions</b> — totals compute automatically",
+    "CTC = Gross + CTC-only · In-Hand = Gross − Deductions · Variable and bonus shown in yearly totals",
     `<button class="btn" onclick="addEarner()">+ Add Earner</button>`) +
     `<datalist id="dlIncomeComp">${dl("incomeComponents")}</datalist>
      <datalist id="dlDedComp">${dl("deductionComponents")}</datalist>` +
+    controlBar +
     (persons.length ? persons.map((p, pi) => incomeEarnerHTML(p, pi)).join("")
-      : '<div class="panel"><div class="empty">No earners yet — add one to start.</div></div>');
+      : '<div class="panel"><div class="empty">No earners yet — add one to start.</div></div>') +
+    (hasMultiYear ? salaryGrowthChart(persons) : "");
 };
+
 function incomeEarnerHTML(p, pi) {
-  const t = incomeTotals(p);
-  const compRows = (p.components || []).map((c, ci) => `
-    <tr><td><input class="inline-input wide" list="dlIncomeComp" value="${esc(c.component)}" onchange="updComp(${pi},${ci},'component',this.value)"></td>
-    <td><select class="inline-select" onchange="updComp(${pi},${ci},'scope',this.value)">
-      <option value="gross"${c.scope !== "ctc" ? " selected" : ""}>Gross (counts in CTC)</option>
-      <option value="ctc"${c.scope === "ctc" ? " selected" : ""}>CTC only</option></select></td>
-    <td class="num"><input class="inline-input" value="${num(c.amount)}" onchange="updComp(${pi},${ci},'amount',this.value)"></td>
-    <td style="width:30px"><button class="icon-btn danger" title="Remove" onclick="delComp(${pi},${ci})">✕</button></td></tr>`).join("");
-  const dedRows = (p.deductions || []).map((c, ci) => `
-    <tr><td><input class="inline-input wide" list="dlDedComp" value="${esc(c.component)}" onchange="updDed(${pi},${ci},'component',this.value)"></td>
-    <td class="num"><input class="inline-input" value="${num(c.amount)}" onchange="updDed(${pi},${ci},'amount',this.value)"></td>
-    <td style="width:30px"><button class="icon-btn danger" title="Remove" onclick="delDed(${pi},${ci})">✕</button></td></tr>`).join("");
-  return `<div class="panel earner-head">
+  const yr = selectedYearEntry(p);
+  const yi = yr ? (p.salaryYears || []).indexOf(yr) : -1;
+  const allPersonYears = (p.salaryYears || []).map(y => y.year).sort((a, b) => b - a);
+  const isYearly = incomeInputMode === "yearly";
+
+  const yearPills = allPersonYears.length > 1 ? `
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+      ${allPersonYears.map(y => {
+        const isActive = incomeYear === y || (incomeYear === null && y === allPersonYears[0]);
+        return `<button class="chip${isActive ? " green" : ""}" onclick="incomeYear=${y};render()" style="cursor:pointer;border:0">${y}</button>`;
+      }).join("")}
+    </div>` : `<div style="opacity:.75;font-size:13px;margin-top:4px">Year: ${yr ? yr.year : "—"}</div>`;
+
+  const header = `<div class="panel earner-head">
     <h2 style="color:#fff">${esc(p.name)}
-      <span><button class="btn small secondary" onclick="renameEarner(${pi})">Rename</button>
-      <button class="btn small danger" onclick="delEarner(${pi})">Delete</button></span></h2>
-    <div class="grid kpis" style="margin-bottom:0">
-      <div class="kpi"><div class="label">Monthly CTC</div><div class="value">${fmtMoney(t.ctc)}</div>
+      <span>
+        <button class="btn small secondary" onclick="addSalaryYear(${pi})">+ Year</button>
+        <button class="btn small secondary" onclick="renameEarner(${pi})">Rename</button>
+        <button class="btn small danger" onclick="delEarner(${pi})">Delete</button>
+      </span>
+    </h2>${yearPills}`;
+
+  if (!yr) {
+    const lbl = incomeYear === null ? "any year" : String(incomeYear);
+    return header + `</div><div class="panel"><div class="empty">No salary data for ${esc(lbl)}.
+      <button class="btn small secondary" onclick="addSalaryYear(${pi})">+ Add salary for this year</button></div></div>`;
+  }
+
+  const t = incomeTotalsForYear(p, yr);
+  const dispAmt = a => isYearly ? num(a) * 12 : num(a);
+  const hint = a => `<div class="small muted" style="font-size:10.5px;text-align:right;margin-top:1px">${isYearly ? fmtMoney(num(a)) + "/mo" : fmtMoney(num(a) * 12) + "/yr"}</div>`;
+
+  const compRows = (yr.components || []).map((c, ci) => `
+    <tr>
+      <td><input class="inline-input wide" list="dlIncomeComp" value="${esc(c.component)}"
+        onchange="updComp(${pi},${yi},${ci},'component',this.value)"></td>
+      <td><select class="inline-select" onchange="updComp(${pi},${yi},${ci},'scope',this.value)">
+        <option value="gross"${c.scope !== "ctc" ? " selected" : ""}>Gross</option>
+        <option value="ctc"${c.scope === "ctc" ? " selected" : ""}>CTC only</option></select></td>
+      <td class="num">
+        <input class="inline-input" value="${dispAmt(c.amount)}"
+          onchange="updComp(${pi},${yi},${ci},'amount',this.value)">
+        ${hint(c.amount)}
+      </td>
+      <td style="width:30px"><button class="icon-btn danger" onclick="delComp(${pi},${yi},${ci})">✕</button></td>
+    </tr>`).join("");
+
+  const dedRows = (yr.deductions || []).map((c, ci) => `
+    <tr>
+      <td><input class="inline-input wide" list="dlDedComp" value="${esc(c.component)}"
+        onchange="updDed(${pi},${yi},${ci},'component',this.value)"></td>
+      <td class="num">
+        <input class="inline-input" value="${dispAmt(c.amount)}"
+          onchange="updDed(${pi},${yi},${ci},'amount',this.value)">
+        ${hint(c.amount)}
+      </td>
+      <td style="width:30px"><button class="icon-btn danger" onclick="delDed(${pi},${yi},${ci})">✕</button></td>
+    </tr>`).join("");
+
+  const varLabel = t.earnedPct !== null
+    ? `Earned: ${t.earnedPct}% (eligible: ${t.eligiblePct}%)`
+    : `Eligible: ${t.eligiblePct}%`;
+  const varBadge = t.earnedPct !== null && t.eligiblePct > 0 && t.earnedPct < t.eligiblePct
+    ? ` <span class="chip amber">below target</span>` : t.earnedPct !== null && t.earnedPct > t.eligiblePct
+    ? ` <span class="chip green">above target</span>` : "";
+
+  return header + `
+    <div class="grid kpis" style="margin-bottom:0;margin-top:12px">
+      <div class="kpi"><div class="label">Monthly CTC</div><div class="value">${fmtMoney(t.monthlyCtc)}</div>
         <div class="delta muted">gross + ${fmtMoney(t.ctcOnly)} CTC-only</div></div>
-      <div class="kpi"><div class="label">Gross Income</div><div class="value">${fmtMoney(t.gross)}</div></div>
-      <div class="kpi"><div class="label">Deductions</div><div class="value neg">${fmtMoney(t.ded)}</div></div>
-      <div class="kpi"><div class="label">In-Hand (computed)</div><div class="value pos">${fmtMoney(t.inHand)}</div>
-        <div class="delta muted">gross − deductions</div></div>
-    </div></div>
+      <div class="kpi"><div class="label">Yearly CTC</div><div class="value">${fmtMoney(t.yearlyCtc)}</div>
+        <div class="delta muted">${fmtMoney(t.yearlyCtcBase)} base + ${fmtMoney(t.variablePay)} variable</div></div>
+      <div class="kpi"><div class="label">Annual Bonus</div><div class="value">${fmtMoney(t.totalBonus)}</div>
+        <div class="delta muted">variable ${fmtMoney(t.variablePay)} + one-time ${fmtMoney(t.oneTimeBonus)}</div></div>
+      <div class="kpi"><div class="label">Monthly In-Hand</div><div class="value pos">${fmtMoney(t.inHand)}</div>
+        <div class="delta muted">gross − deductions only</div></div>
+    </div>
+  </div>
   <div class="grid two-col">
-    <div class="panel"><h2>Salary Components <button class="btn small secondary" onclick="addComp(${pi})">+ Row</button></h2>
+    <div class="panel">
+      <h2>Salary Components <button class="btn small secondary" onclick="addComp(${pi},${yi})">+ Row</button></h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Component</th><th>Counted In</th><th class="num">Amount</th><th></th></tr></thead>
+        <thead><tr><th>Component</th><th>Scope</th><th class="num">${isYearly ? "Yearly" : "Monthly"}</th><th></th></tr></thead>
         <tbody>${compRows}
-          <tr class="subtotal"><td>Gross subtotal</td><td></td><td class="num">${fmtMoney(t.gross)}</td><td></td></tr>
-          <tr class="subtotal"><td>Monthly CTC</td><td></td><td class="num">${fmtMoney(t.ctc)}</td><td></td></tr>
-        </tbody></table></div>
-      <p class="muted small mt">"CTC only" = employer-side money not paid in gross (e.g. Employer PF).</p></div>
-    <div class="panel"><h2>Deductions <button class="btn small secondary" onclick="addDed(${pi})">+ Row</button></h2>
+          <tr class="subtotal"><td>Gross subtotal</td><td></td>
+            <td class="num">${fmtMoney(isYearly ? t.gross * 12 : t.gross)}</td><td></td></tr>
+          <tr class="subtotal"><td>Monthly CTC</td><td></td>
+            <td class="num">${fmtMoney(isYearly ? t.monthlyCtc * 12 : t.monthlyCtc)}</td><td></td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted small mt">"CTC only" = employer-side money not in gross (e.g. Employer PF).</p>
+
+      <h3 style="margin:16px 0 10px;font-size:14px">Variable Pay &amp; Bonus</h3>
+      <div class="fld-row" style="gap:12px">
+        <label class="fld"><span>Variable eligible (% of annual CTC)</span>
+          <input type="number" step="any" min="0" max="100" style="width:100%"
+            value="${t.eligiblePct || ""}" placeholder="0"
+            onchange="updVariable(${pi},${yi},'variablePctEligible',this.value)">
+        </label>
+        <label class="fld"><span>Variable earned (% of CTC — blank = use eligible)</span>
+          <input type="number" step="any" min="0" max="100" style="width:100%"
+            value="${t.earnedPct !== null ? t.earnedPct : ""}" placeholder="same as eligible"
+            onchange="updVariable(${pi},${yi},'variablePctEarned',this.value)">
+        </label>
+      </div>
+      <div class="small muted" style="margin:-4px 0 10px">
+        ${varLabel} × ${fmtMoney(t.yearlyCtcBase)}/yr = <b>${fmtMoney(t.variablePay)}</b>${varBadge}
+      </div>
+      <label class="fld"><span>One-time bonus (flat annual amount)</span>
+        <input type="number" step="any" min="0" style="max-width:220px"
+          value="${t.oneTimeBonus || ""}" placeholder="0"
+          onchange="updOneTimeBonus(${pi},${yi},this.value)">
+      </label>
+    </div>
+    <div class="panel">
+      <h2>Deductions <button class="btn small secondary" onclick="addDed(${pi},${yi})">+ Row</button></h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Deduction</th><th class="num">Amount</th><th></th></tr></thead>
+        <thead><tr><th>Deduction</th><th class="num">${isYearly ? "Yearly" : "Monthly"}</th><th></th></tr></thead>
         <tbody>${dedRows}
-          <tr class="subtotal"><td>Total deductions</td><td class="num">${fmtMoney(t.ded)}</td><td></td></tr>
-          <tr class="subtotal"><td>In-Hand (gross − deductions)</td><td class="num ${t.inHand >= 0 ? "pos" : "neg"}">${fmtMoney(t.inHand)}</td><td></td></tr>
-        </tbody></table></div>
-      ${t.inHand < 0 ? '<p class="small neg mt">⚠ Deductions exceed gross — check the amounts.</p>' : ""}</div>
+          <tr class="subtotal"><td>Total deductions</td>
+            <td class="num">${fmtMoney(isYearly ? t.ded * 12 : t.ded)}</td><td></td></tr>
+          <tr class="subtotal"><td>In-Hand (gross − deductions)</td>
+            <td class="num ${t.inHand >= 0 ? "pos" : "neg"}">${fmtMoney(isYearly ? t.inHand * 12 : t.inHand)}</td><td></td></tr>
+        </tbody>
+      </table></div>
+      ${t.inHand < 0 ? '<p class="small neg mt">⚠ Deductions exceed gross — check amounts.</p>' : ""}
+    </div>
   </div>`;
 }
 function addEarner() {
   formModal("Add earning member", [{ name: "name", label: "Name", required: true }], v => {
-    DB.income.persons.push({ name: v.name, components: [], deductions: [] });
+    const curYear = new Date().getFullYear();
+    DB.income.persons.push({ name: v.name, salaryYears: [{
+      year: curYear, components: [], deductions: [],
+      variablePctEligible: 0, variablePctEarned: null, oneTimeBonus: 0
+    }]});
     if (!DB.settings.persons.includes(v.name)) DB.settings.persons.push(v.name);
     closeModal(); save(); render();
   });
@@ -566,38 +715,140 @@ function renameEarner(pi) {
   });
 }
 function delEarner(pi) {
-  confirmModal(`Delete ${DB.income.persons[pi].name} and all their income rows?`, () => {
+  confirmModal(`Delete ${DB.income.persons[pi].name} and all their income data?`, () => {
     DB.income.persons.splice(pi, 1); save(); render();
   });
 }
-function addComp(pi) { DB.income.persons[pi].components.push({ component: "New component", amount: 0, scope: "gross" }); save(); render(); }
-function addDed(pi) { DB.income.persons[pi].deductions.push({ component: "New deduction", amount: 0 }); save(); render(); }
-function updComp(pi, ci, field, val) {
-  const c = DB.income.persons[pi].components[ci];
+function addComp(pi, yi) {
+  DB.income.persons[pi].salaryYears[yi].components.push({ component: "New component", amount: 0, scope: "gross" });
+  save(); render();
+}
+function addDed(pi, yi) {
+  DB.income.persons[pi].salaryYears[yi].deductions.push({ component: "New deduction", amount: 0 });
+  save(); render();
+}
+function updComp(pi, yi, ci, field, val) {
+  const c = DB.income.persons[pi].salaryYears[yi].components[ci];
   if (field === "amount") {
     const r = validAmount(val);
     if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
-    c.amount = r.n;
+    c.amount = incomeInputMode === "yearly" ? r.n / 12 : r.n;
   } else if (field === "component") {
     if (!val.trim()) { toast("Component name can't be empty", true); render(); return; }
     c.component = val.trim(); addPred("incomeComponents", c.component);
   } else c[field] = val;
   save(); render();
 }
-function updDed(pi, ci, field, val) {
-  const c = DB.income.persons[pi].deductions[ci];
+function updDed(pi, yi, ci, field, val) {
+  const c = DB.income.persons[pi].salaryYears[yi].deductions[ci];
   if (field === "amount") {
     const r = validAmount(val);
     if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
-    c.amount = r.n;
+    c.amount = incomeInputMode === "yearly" ? r.n / 12 : r.n;
   } else {
     if (!val.trim()) { toast("Deduction name can't be empty", true); render(); return; }
     c.component = val.trim(); addPred("deductionComponents", c.component);
   }
   save(); render();
 }
-function delComp(pi, ci) { DB.income.persons[pi].components.splice(ci, 1); save(); render(); }
-function delDed(pi, ci) { DB.income.persons[pi].deductions.splice(ci, 1); save(); render(); }
+function delComp(pi, yi, ci) { DB.income.persons[pi].salaryYears[yi].components.splice(ci, 1); save(); render(); }
+function delDed(pi, yi, ci) { DB.income.persons[pi].salaryYears[yi].deductions.splice(ci, 1); save(); render(); }
+function updVariable(pi, yi, field, val) {
+  const yr = DB.income.persons[pi].salaryYears[yi];
+  if (field === "variablePctEarned") {
+    yr.variablePctEarned = val.trim() === "" ? null : num(val);
+  } else {
+    yr[field] = num(val);
+  }
+  save(); render();
+}
+function updOneTimeBonus(pi, yi, val) {
+  const r = validAmount(val);
+  if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
+  DB.income.persons[pi].salaryYears[yi].oneTimeBonus = r.n;
+  save(); render();
+}
+function addSalaryYear(pi) {
+  const p = DB.income.persons[pi];
+  const existing = (p.salaryYears || []).map(y => y.year);
+  const curYear = new Date().getFullYear();
+  const nextYear = existing.length ? Math.max(...existing) + 1 : curYear;
+  formModal(`Add salary year — ${esc(p.name)}`, [
+    { name: "year", label: "Year", type: "number", value: nextYear, required: true, min: 2000 },
+    { name: "copyFrom", label: "Copy from year (empty = start fresh)", type: "select",
+      value: "", options: [["", "— Start fresh —"], ...(p.salaryYears || []).map(y => [String(y.year), String(y.year)])] },
+  ], v => {
+    const yr = num(v.year);
+    if (existing.includes(yr)) { toast(`Year ${yr} already exists for ${p.name}`, true); return; }
+    let entry;
+    if (v.copyFrom) {
+      const src = (p.salaryYears || []).find(y => y.year === num(v.copyFrom));
+      if (src) entry = { ...JSON.parse(JSON.stringify(src)), year: yr, variablePctEarned: null, oneTimeBonus: 0 };
+    }
+    if (!entry) entry = { year: yr, components: [], deductions: [], variablePctEligible: 0, variablePctEarned: null, oneTimeBonus: 0 };
+    p.salaryYears.push(entry);
+    incomeYear = yr;
+    closeModal(); save(); render();
+  });
+}
+function salaryGrowthChart(persons) {
+  const multi = persons.filter(p => (p.salaryYears || []).length >= 2);
+  if (!multi.length) return "";
+  const allYears = [...new Set(multi.flatMap(p => (p.salaryYears || []).map(y => y.year)))].sort((a, b) => a - b);
+  if (allYears.length < 2) return "";
+  const series = multi.map((p, i) => {
+    const map = {};
+    (p.salaryYears || []).forEach(yr => { map[yr.year] = incomeTotalsForYear(p, yr).yearlyCtc; });
+    return { name: p.name, color: PALETTE[i % PALETTE.length], map };
+  });
+  const maxVal = Math.max(...series.flatMap(s => Object.values(s.map)), 1);
+  const W = 560, H = 220, PL = 82, PR = 20, PT = 20, PB = 40;
+  const cW = W - PL - PR, cH = H - PT - PB;
+  const xStep = allYears.length > 1 ? cW / (allYears.length - 1) : cW;
+  const xOf = i => PL + i * xStep;
+  const yOf = v => PT + cH - (v / maxVal * cH);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map(pct => {
+    const y = PT + cH * (1 - pct), v = maxVal * pct;
+    return `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="#e4e8f0" stroke-dasharray="4,4"/>
+      <text x="${PL - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="#6b7385">${fmtMoney(v, true)}</text>`;
+  }).join("");
+  const xLabels = allYears.map((y, i) =>
+    `<text x="${xOf(i)}" y="${H - 8}" text-anchor="middle" font-size="12" fill="#1c2333">${y}</text>`).join("");
+  const seriesSVG = series.map(s => {
+    const pts = allYears.map((y, i) => s.map[y] !== undefined ? { x: xOf(i), y: yOf(s.map[y]), v: s.map[y] } : null).filter(Boolean);
+    if (!pts.length) return "";
+    const line = pts.length >= 2 ? `<polyline points="${pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}"
+      fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : "";
+    const dots = pts.map(p => `<g><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${s.color}" stroke="#fff" stroke-width="2"/>
+      <title>${s.name} ${fmtMoney(p.v)}/yr</title></g>`).join("");
+    return line + dots;
+  }).join("");
+  const legend = series.map(s =>
+    `<span style="display:flex;align-items:center;gap:5px;font-size:12.5px">
+      <i class="dot" style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
+  const growthKpis = series.map(s => {
+    const yrs = allYears.filter(y => s.map[y] !== undefined);
+    if (yrs.length < 2) return "";
+    const first = s.map[yrs[0]], last = s.map[yrs[yrs.length - 1]];
+    const totalGrowth = first ? (last - first) / first : 0;
+    const yoy = s.map[yrs[yrs.length - 2]] ? (last / s.map[yrs[yrs.length - 2]]) - 1 : 0;
+    return `<div class="kpi"><div class="label" style="display:flex;align-items:center;gap:6px">
+      <i class="dot" style="background:${s.color}"></i>${esc(s.name)}</div>
+      <div class="value">${fmtMoney(last, true)}/yr</div>
+      <div class="delta muted">Total: ${fmtPct(totalGrowth)} · YoY: ${fmtPct(yoy)}</div></div>`;
+  }).join("");
+  return `<div class="panel"><h2>Salary Growth</h2>
+    <div style="overflow-x:auto">
+      <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${W}px;display:block">
+        ${grid}
+        <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT + cH}" stroke="#e4e8f0"/>
+        ${xLabels}${seriesSVG}
+      </svg>
+    </div>
+    <div class="legend" style="padding-left:${PL}px">${legend}</div>
+    <div class="grid kpis" style="margin-top:12px">${growthKpis}</div>
+  </div>`;
+}
 
 /* ================= EXPENSES ================= */
 function groupDim(g) {

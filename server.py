@@ -25,6 +25,13 @@ from urllib.parse import urlparse, parse_qs, unquote
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(APP_DIR, "public")
 
+# ── port configuration ────────────────────────────────────────────────────────
+PORTS_FILE_NAME  = "ports.json"
+REGISTRY_KEY     = "family-finance-app"
+DEFAULT_PORT     = 8765
+MAX_PORT_TRIES   = 50
+MAX_SEARCH_DEPTH = 3
+
 MIME = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -283,14 +290,27 @@ def port_in_use(port):
         s.close()
 
 
-def get_registered_port(default: int = 8765) -> int:
-    """Read port from sibling ports.json if present, else use default."""
-    ports_file = os.path.join(os.path.dirname(APP_DIR), "ports.json")
-    try:
-        with open(ports_file) as f:
-            return json.load(f)["registry"]["family-finance-app"]["port"]
-    except Exception:
-        return default
+def _find_ports_file(start_dir):
+    d = os.path.abspath(start_dir)
+    for _ in range(MAX_SEARCH_DEPTH):
+        candidate = os.path.join(d, PORTS_FILE_NAME)
+        if os.path.isfile(candidate):
+            return candidate
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+def get_registered_port():
+    pf = _find_ports_file(APP_DIR)
+    if pf:
+        try:
+            with open(pf) as f:
+                return json.load(f)["registry"][REGISTRY_KEY]["port"]
+        except Exception:
+            pass
+    return DEFAULT_PORT
 
 
 def main():
@@ -306,15 +326,15 @@ def main():
 
     port = args.port
     httpd = None
-    for _ in range(50):
-        if port_in_use(port):          # another app is already serving here
-            print("  Port %d is busy (another server is using it) - trying %d" % (port, port + 1))
+    for _ in range(MAX_PORT_TRIES):
+        if port_in_use(port):
+            print("  Port %d is busy — trying %d" % (port, port + 1))
             port += 1
             continue
         try:
             httpd = FFServer(("127.0.0.1", port), Handler)
             break
-        except OSError:                # raced or blocked - step to the next port
+        except OSError:
             port += 1
     if httpd is None:
         print("Could not find a free port (tried %d-%d)." % (args.port, port))
