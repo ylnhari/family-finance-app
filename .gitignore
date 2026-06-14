@@ -1,6 +1,9 @@
 # Personal financial data - NEVER commit this
 data/
 
+# Claude Code local config (permissions, preview config — machine-specific)
+.claude/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
