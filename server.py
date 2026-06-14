@@ -27,6 +27,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(APP_DIR, "public")
+SAMPLE_FILE = os.path.join(APP_DIR, "samples", "demo-finances.json")  # committed demo dataset
+DEFAULT_DATA_DIR = os.path.join(APP_DIR, "data")
+DEMO_DATA_DIR = os.path.join(APP_DIR, "demo-data")  # throwaway sandbox for --demo (gitignored)
 
 # ── port configuration ────────────────────────────────────────────────────────
 PORTS_FILE_NAME  = "ports.json"
@@ -118,6 +121,7 @@ EXTRACTION_PROMPT = (
 )
 
 _gemini_available_models = None  # cached after first successful list call
+_save_lock = threading.Lock()   # prevents concurrent writes to finances.json.tmp on Windows
 
 
 def _list_gemini_models():
@@ -157,6 +161,23 @@ def _pick_gemini_models():
     return ordered + extras or GEMINI_PREFERRED
 
 
+def _parse_gemini_json(text):
+    """Strip optional ```json fences a model may wrap around the payload, then parse."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return json.loads(text)
+
+
+def _parse_price_text(text):
+    """Pull the first numeric value (price in INR) out of a model reply. None if absent."""
+    text = (text or "").strip()
+    if text.lower() in ("null", "none", ""):
+        return None
+    nums = re.findall(r"[\d]+(?:\.\d+)?", text.replace(",", ""))
+    return float(nums[0]) if nums else None
+
+
 def _gemini_call(file_bytes, mime_type, model):
     """Single model call. Raises urllib.error.HTTPError on API errors."""
     payload = json.dumps({
@@ -173,9 +194,7 @@ def _gemini_call(file_bytes, mime_type, model):
     with urllib.request.urlopen(req, timeout=30) as resp:
         result = json.loads(resp.read().decode("utf-8"))
     text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return json.loads(text), model
+    return _parse_gemini_json(text), model
 
 
 def gemini_extract(file_bytes, mime_type):
@@ -200,6 +219,61 @@ def gemini_extract(file_bytes, mime_type):
     )
 
 
+PRICE_PROMPT = (
+    "Search for the current market price or estimated value in Indian Rupees (INR) of: {goal_name}"
+    " (category: {goal_type}).\n"
+    "Return ONLY a single integer or decimal number representing the price/value in INR. "
+    "No currency symbol, no commas, no explanation, no units — just the number.\n"
+    "If you cannot find a specific price, return null.\nExamples: 1500000  or  4800000  or  null"
+)
+
+
+GOLD_PRICE_PROMPT = (
+    "What is the current price of exactly ONE (1) gram of 24K (999 purity) gold today in India, "
+    "in Indian Rupees? Quote the per-1-gram rate, NOT the per-10-gram rate.\n"
+    "Return ONLY a single integer or decimal number — no currency symbol, no commas, no units, "
+    "no explanation. If you cannot find it, return null.\nExamples: 7250  or  7840.5  or  null"
+)
+
+
+def gemini_price_search(goal_name, goal_type, prompt=None):
+    """Try Gemini with Google Search grounding to fetch live market price. Returns (price_float|None, model)."""
+    if prompt is None:
+        prompt = PRICE_PROMPT.format(goal_name=goal_name, goal_type=goal_type or "general")
+    last_err = None
+    for model in _pick_gemini_models():
+        url = GEMINI_GEN_URL.format(model=model, key=GEMINI_API_KEY)
+        # Try with Google Search grounding first
+        for use_grounding in (True, False):
+            payload_dict = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 64},
+            }
+            if use_grounding:
+                payload_dict["tools"] = [{"google_search": {}}]
+            payload = json.dumps(payload_dict).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return _parse_price_text(text), model
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", "replace")
+                if e.code in (429, 503):
+                    last_err = "%s:%d" % (model, e.code)
+                    break  # quota — try next model
+                if e.code in (400, 404):
+                    if use_grounding:
+                        continue  # grounding not supported on this model — try without
+                    last_err = "%s:%d" % (model, e.code)
+                    break
+                raise RuntimeError("Gemini %d (%s): %s" % (e.code, model, body[:300]))
+    if last_err:
+        raise RuntimeError("All Gemini models exhausted. Last: %s" % last_err)
+    raise RuntimeError("No Gemini models available")
+
+
 def data_file():
     return os.path.join(DATA_DIR, "finances.json")
 
@@ -212,11 +286,18 @@ def backups_dir():
     return os.path.join(DATA_DIR, "backups")
 
 
-def ensure_data():
+def ensure_data(seed_file=None):
+    """Create the data dir tree. If finances.json is absent, seed it from seed_file
+    (the demo dataset) when given, otherwise from the empty scaffold."""
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(files_dir(), exist_ok=True)
     os.makedirs(backups_dir(), exist_ok=True)
-    if not os.path.exists(data_file()):
+    if os.path.exists(data_file()):
+        return
+    if seed_file and os.path.isfile(seed_file):
+        shutil.copy2(seed_file, data_file())
+        print("  Seeded demo data from: " + seed_file)
+    else:
         with open(data_file(), "w", encoding="utf-8") as f:
             json.dump(EMPTY_DATA, f, indent=2)
         print("  Created new empty data file: " + data_file())
@@ -346,12 +427,12 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._err(400, "Invalid JSON: %s" % e)
         data.setdefault("settings", {})["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
-        make_backup()  # automatic rotating daily backup (first save of the day)
-        # atomic write
-        tmp = data_file() + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, data_file())
+        with _save_lock:
+            make_backup()  # automatic rotating daily backup (first save of the day)
+            tmp = data_file() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, data_file())
         self._send(200, {"ok": True, "lastUpdated": data["settings"]["lastUpdated"]})
 
     def do_POST(self):
@@ -374,6 +455,29 @@ class Handler(BaseHTTPRequestHandler):
             make_backup("prerestore")                # safety snapshot of current data
             shutil.copy2(src, data_file())
             return self._send(200, {"ok": True, "restored": name})
+        if parsed.path == "/api/fetch-goal-price":
+            if not GEMINI_API_KEY:
+                return self._err(503, "Gemini API key not configured")
+            body = json.loads(self._body().decode("utf-8"))
+            goal_name = str(body.get("name", "")).strip()
+            goal_type = str(body.get("type", "")).strip()
+            if not goal_name:
+                return self._err(400, "Goal name required")
+            try:
+                price, model = gemini_price_search(goal_name, goal_type)
+                return self._send(200, {"ok": True, "price": price, "model": model})
+            except Exception as e:
+                return self._err(422, str(e))
+        if parsed.path == "/api/fetch-gold-price":
+            if not GEMINI_API_KEY:
+                return self._err(503, "Gemini API key not configured")
+            try:
+                price, model = gemini_price_search("", "", prompt=GOLD_PRICE_PROMPT)
+                if price and price > 30000:   # model likely quoted per-10-gram — normalise to per-gram
+                    price = round(price / 10.0, 2)
+                return self._send(200, {"ok": True, "price": price, "model": model})
+            except Exception as e:
+                return self._err(422, str(e))
         if parsed.path == "/api/extract-payslip":
             if not GEMINI_API_KEY:
                 return self._err(503, "Gemini API key not configured. Set GEMINI_API_KEY in your environment.")
@@ -472,12 +576,22 @@ def main():
     global DATA_DIR
     ap = argparse.ArgumentParser(description="Family Finance local server")
     ap.add_argument("--port", type=int, default=get_registered_port())
-    ap.add_argument("--data-dir", default=os.path.join(APP_DIR, "data"))
+    ap.add_argument("--data-dir", default=DEFAULT_DATA_DIR)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--demo", action="store_true",
+                    help="Run on a throwaway demo dataset in demo-data/ (seeded from "
+                         "samples/), leaving your real data/ folder completely untouched")
     args = ap.parse_args()
 
-    DATA_DIR = os.path.abspath(args.data_dir)
-    ensure_data()
+    seed = None
+    if args.demo:
+        # isolate everything (finances.json, files/, backups/) into demo-data/ unless
+        # the user explicitly pointed --data-dir elsewhere; real data/ is never written.
+        DATA_DIR = os.path.abspath(args.data_dir) if args.data_dir != DEFAULT_DATA_DIR else DEMO_DATA_DIR
+        seed = SAMPLE_FILE
+    else:
+        DATA_DIR = os.path.abspath(args.data_dir)
+    ensure_data(seed)
 
     port = args.port
     httpd = None
@@ -497,9 +611,12 @@ def main():
 
     url = "http://127.0.0.1:%d" % port
     print("=" * 52)
-    print("  Family Finance")
+    print("  Family Finance" + ("  [DEMO MODE]" if args.demo else ""))
     print("  App:  " + url)
     print("  Data: " + data_file())
+    if args.demo:
+        print("  Demo sandbox — your real data/ folder is untouched.")
+        print("  Reset the demo anytime by deleting: " + DATA_DIR)
     print("  Press Ctrl+C to stop.")
     print("=" * 52)
     if not args.no_browser:

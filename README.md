@@ -18,6 +18,36 @@ First run creates an empty `data/finances.json` — start adding your own number
 
 Options: `--port 9000`, `--data-dir /path/to/data`, `--no-browser`
 
+## Try the demo
+
+A ready-made sample dataset (fake "Sharma Family") ships in `samples/` and exercises every
+feature — multi-year salaries, a home loan with prepayments, gold with buy-price gains,
+goals with market values, cards, and more.
+
+```
+python server.py --demo
+```
+
+This seeds a throwaway sandbox in `demo-data/` (gitignored) — **your real `data/` folder is
+left completely untouched**, including backups and uploads. Reset the demo anytime by
+deleting the `demo-data/` folder.
+
+## Tests
+
+No frameworks — pure-math runs under Node's built-in runner, server/API under Python's `unittest`.
+
+```
+./test.sh        # or test.bat on Windows
+```
+
+Individually:
+```
+python -m unittest discover -s tests -p "test_*.py"        # server, persistence, --demo isolation, gemini parse logic
+node --test tests/math.test.js tests/sample.test.js        # EMI/amortization/prepayment math + sample-data integrity
+```
+
+See [tests/TESTPLAN.md](tests/TESTPLAN.md) for the full coverage map.
+
 ## How your data is stored
 
 | What | Where |

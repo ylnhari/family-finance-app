@@ -1,0 +1,350 @@
+{
+  "schemaVersion": 1,
+  "settings": {
+    "appName": "Sharma Family Finance",
+    "currency": "INR",
+    "locale": "en-IN",
+    "persons": ["Arjun", "Priya"],
+    "personMeta": {
+      "Arjun": { "dob": "1988-04-12" },
+      "Priya": { "dob": "1991-09-03" }
+    },
+    "locations": ["Bengaluru", "Hyderabad"],
+    "lastUpdated": "2026-06-10T21:30:00",
+    "predefined": {
+      "expenseGroups": ["Housing", "Food & Groceries", "Transport", "Utilities", "Kids", "Lifestyle"],
+      "expenseCategories": {
+        "Housing": ["Rent", "Maintenance", "Society Charges"],
+        "Food & Groceries": ["Groceries", "Milk & Dairy", "Dining Out"],
+        "Transport": ["Fuel", "Cab / Metro", "Car Service"],
+        "Utilities": ["Electricity", "Water", "Internet", "Mobile", "Gas"],
+        "Kids": ["School Fees", "Activities", "Books & Supplies"],
+        "Lifestyle": ["OTT Subscriptions", "Gym", "Shopping"]
+      },
+      "locations": ["Bengaluru", "Hyderabad"],
+      "investmentInstruments": ["PF", "NPS", "MF SIP", "Gold Scheme", "RD", "Sukanya Samriddhi", "ELSS"],
+      "assetClasses": ["Equity", "Debt", "Fixed", "Real estate", "Liquidity", "Gold", "Other"],
+      "assetNames": ["Index Fund", "Bluechip MF", "PPF", "EPF", "Plot - Devanahalli", "Savings A/c", "FD - HDFC", "NPS Tier 1"],
+      "goalTypes": ["Car", "Home", "Family Function", "Travel", "Education"],
+      "banks": ["HDFC", "ICICI", "SBI", "Axis"],
+      "cardTypes": ["Credit", "Debit", "Credit Virtual", "Food Card", "Priority Pass", "Other"],
+      "networks": ["VISA", "MasterCard", "RuPay", "AmEx"],
+      "lenders": ["HDFC", "SBI", "Bajaj Finserv"],
+      "incomeComponents": ["BASIC SALARY", "HOUSE RENT ALLOWANCE", "SPECIAL ALLOWANCE", "LTA", "BONUS", "EMPLOYER PF", "EMPLOYER NPS", "GRATUITY"],
+      "deductionComponents": ["INCOME TAX (TDS)", "EMPLOYEE PF", "PROFESSIONAL TAX", "EMPLOYEE NPS", "HEALTH INSURANCE"],
+      "expenseGroupMeta": {
+        "Housing": { "dim": "location", "created": true },
+        "Food & Groceries": { "dim": "none", "created": true },
+        "Transport": { "dim": "person", "created": true },
+        "Utilities": { "dim": "none", "created": true },
+        "Kids": { "dim": "none", "created": true },
+        "Lifestyle": { "dim": "person", "created": true }
+      }
+    }
+  },
+  "income": {
+    "persons": [
+      {
+        "name": "Arjun",
+        "salaryYears": [
+          {
+            "year": 2024,
+            "components": [
+              { "component": "BASIC SALARY", "amount": 90000, "scope": "gross" },
+              { "component": "HOUSE RENT ALLOWANCE", "amount": 45000, "scope": "gross" },
+              { "component": "SPECIAL ALLOWANCE", "amount": 60000, "scope": "gross" },
+              { "component": "LTA", "amount": 7500, "scope": "gross" },
+              { "component": "EMPLOYER PF", "amount": 10800, "scope": "ctc" },
+              { "component": "GRATUITY", "amount": 4330, "scope": "ctc" }
+            ],
+            "deductions": [
+              { "component": "INCOME TAX (TDS)", "amount": 38000 },
+              { "component": "EMPLOYEE PF", "amount": 10800 },
+              { "component": "PROFESSIONAL TAX", "amount": 200 },
+              { "component": "HEALTH INSURANCE", "amount": 2500 }
+            ],
+            "variablePctEligible": 15,
+            "variablePctEarned": 12,
+            "oneTimeBonus": 150000
+          },
+          {
+            "year": 2025,
+            "components": [
+              { "component": "BASIC SALARY", "amount": 102000, "scope": "gross" },
+              { "component": "HOUSE RENT ALLOWANCE", "amount": 51000, "scope": "gross" },
+              { "component": "SPECIAL ALLOWANCE", "amount": 72000, "scope": "gross" },
+              { "component": "LTA", "amount": 8500, "scope": "gross" },
+              { "component": "EMPLOYER PF", "amount": 12240, "scope": "ctc" },
+              { "component": "GRATUITY", "amount": 4900, "scope": "ctc" }
+            ],
+            "deductions": [
+              { "component": "INCOME TAX (TDS)", "amount": 47000 },
+              { "component": "EMPLOYEE PF", "amount": 12240 },
+              { "component": "PROFESSIONAL TAX", "amount": 200 },
+              { "component": "HEALTH INSURANCE", "amount": 2800 }
+            ],
+            "variablePctEligible": 15,
+            "variablePctEarned": 14,
+            "oneTimeBonus": 0
+          },
+          {
+            "year": 2026,
+            "components": [
+              { "component": "BASIC SALARY", "amount": 118000, "scope": "gross" },
+              { "component": "HOUSE RENT ALLOWANCE", "amount": 59000, "scope": "gross" },
+              { "component": "SPECIAL ALLOWANCE", "amount": 88000, "scope": "gross" },
+              { "component": "LTA", "amount": 10000, "scope": "gross" },
+              { "component": "EMPLOYER PF", "amount": 14160, "scope": "ctc" },
+              { "component": "GRATUITY", "amount": 5670, "scope": "ctc" }
+            ],
+            "deductions": [
+              { "component": "INCOME TAX (TDS)", "amount": 58000 },
+              { "component": "EMPLOYEE PF", "amount": 14160 },
+              { "component": "PROFESSIONAL TAX", "amount": 200 },
+              { "component": "HEALTH INSURANCE", "amount": 3000 }
+            ],
+            "variablePctEligible": 18,
+            "variablePctEarned": null,
+            "oneTimeBonus": 200000
+          }
+        ]
+      },
+      {
+        "name": "Priya",
+        "salaryYears": [
+          {
+            "year": 2025,
+            "components": [
+              { "component": "BASIC SALARY", "amount": 70000, "scope": "gross" },
+              { "component": "HOUSE RENT ALLOWANCE", "amount": 35000, "scope": "gross" },
+              { "component": "SPECIAL ALLOWANCE", "amount": 40000, "scope": "gross" },
+              { "component": "EMPLOYER PF", "amount": 8400, "scope": "ctc" }
+            ],
+            "deductions": [
+              { "component": "INCOME TAX (TDS)", "amount": 18000 },
+              { "component": "EMPLOYEE PF", "amount": 8400 },
+              { "component": "PROFESSIONAL TAX", "amount": 200 }
+            ],
+            "variablePctEligible": 10,
+            "variablePctEarned": 10,
+            "oneTimeBonus": 0
+          },
+          {
+            "year": 2026,
+            "components": [
+              { "component": "BASIC SALARY", "amount": 80000, "scope": "gross" },
+              { "component": "HOUSE RENT ALLOWANCE", "amount": 40000, "scope": "gross" },
+              { "component": "SPECIAL ALLOWANCE", "amount": 52000, "scope": "gross" },
+              { "component": "EMPLOYER PF", "amount": 9600, "scope": "ctc" }
+            ],
+            "deductions": [
+              { "component": "INCOME TAX (TDS)", "amount": 24000 },
+              { "component": "EMPLOYEE PF", "amount": 9600 },
+              { "component": "PROFESSIONAL TAX", "amount": 200 }
+            ],
+            "variablePctEligible": 12,
+            "variablePctEarned": null,
+            "oneTimeBonus": 75000
+          }
+        ]
+      }
+    ]
+  },
+  "expenses": [
+    { "id": "exp01", "group": "Housing", "category": "Rent", "location": "Bengaluru", "person": "", "amount": 42000, "notes": "3BHK Whitefield" },
+    { "id": "exp02", "group": "Housing", "category": "Maintenance", "location": "Bengaluru", "person": "", "amount": 6500, "notes": "" },
+    { "id": "exp03", "group": "Food & Groceries", "category": "Groceries", "location": "", "person": "", "amount": 22000, "notes": "" },
+    { "id": "exp04", "group": "Food & Groceries", "category": "Milk & Dairy", "location": "", "person": "", "amount": 3500, "notes": "" },
+    { "id": "exp05", "group": "Food & Groceries", "category": "Dining Out", "location": "", "person": "", "amount": 8000, "notes": "weekends" },
+    { "id": "exp06", "group": "Transport", "category": "Fuel", "location": "", "person": "Arjun", "amount": 7000, "notes": "" },
+    { "id": "exp07", "group": "Transport", "category": "Cab / Metro", "location": "", "person": "Priya", "amount": 4500, "notes": "office commute" },
+    { "id": "exp08", "group": "Utilities", "category": "Electricity", "location": "", "person": "", "amount": 3800, "notes": "" },
+    { "id": "exp09", "group": "Utilities", "category": "Internet", "location": "", "person": "", "amount": 1200, "notes": "ACT 300Mbps" },
+    { "id": "exp10", "group": "Utilities", "category": "Mobile", "location": "", "person": "", "amount": 1100, "notes": "2 postpaid" },
+    { "id": "exp11", "group": "Kids", "category": "School Fees", "location": "", "person": "", "amount": 28000, "notes": "Aarav - Gr 3" },
+    { "id": "exp12", "group": "Kids", "category": "Activities", "location": "", "person": "", "amount": 4000, "notes": "skating + music" },
+    { "id": "exp13", "group": "Lifestyle", "category": "OTT Subscriptions", "location": "", "person": "Arjun", "amount": 1500, "notes": "Netflix+Prime+Spotify" },
+    { "id": "exp14", "group": "Lifestyle", "category": "Gym", "location": "", "person": "Priya", "amount": 2500, "notes": "" }
+  ],
+  "monthlyInvestments": [
+    { "id": "inv01", "category": "MF SIP", "person": "Arjun", "deductedFrom": "IN HAND", "amount": 40000 },
+    { "id": "inv02", "category": "MF SIP", "person": "Priya", "deductedFrom": "IN HAND", "amount": 20000 },
+    { "id": "inv03", "category": "PF", "person": "Arjun", "deductedFrom": "GROSS", "amount": 14160 },
+    { "id": "inv04", "category": "NPS", "person": "Arjun", "deductedFrom": "CTC", "amount": 6000 },
+    { "id": "inv05", "category": "Sukanya Samriddhi", "person": "Priya", "deductedFrom": "IN HAND", "amount": 12500 },
+    { "id": "inv06", "category": "RD", "person": "Priya", "deductedFrom": "IN HAND", "amount": 10000 },
+    { "id": "inv07", "category": "ELSS", "person": "Arjun", "deductedFrom": "IN HAND", "amount": 12500 }
+  ],
+  "portfolio": [
+    { "id": "pf01", "category": "Index Fund", "subCategory": "Equity", "owner": "Arjun", "invested": 1200000, "currentValue": 1620000, "maturityAge": 0, "maturityMonths": 0, "notes": "Nifty 50 since 2021" },
+    { "id": "pf02", "category": "Bluechip MF", "subCategory": "Equity", "owner": "Arjun", "invested": 600000, "currentValue": 712000, "maturityAge": 0, "maturityMonths": 0, "notes": "" },
+    { "id": "pf03", "category": "ELSS", "subCategory": "Equity", "owner": "Priya", "invested": 300000, "currentValue": 358000, "maturityAge": 0, "maturityMonths": 36, "notes": "tax saver, 3yr lock-in" },
+    { "id": "pf04", "category": "PPF", "subCategory": "Fixed", "owner": "Priya", "invested": 450000, "currentValue": 502000, "maturityAge": 60, "maturityMonths": 0, "notes": "matures at 60" },
+    { "id": "pf05", "category": "NPS Tier 1", "subCategory": "Fixed", "owner": "Arjun", "invested": 800000, "currentValue": 880000, "maturityAge": 60, "maturityMonths": 0, "notes": "locked till 60" },
+    { "id": "pf06", "category": "FD - HDFC", "subCategory": "Debt", "owner": "Arjun", "invested": 500000, "currentValue": 535000, "maturityAge": 0, "maturityMonths": 12, "notes": "7.1% p.a." },
+    { "id": "pf07", "category": "Plot - Devanahalli", "subCategory": "Real estate", "owner": "Family", "invested": 3500000, "currentValue": 5200000, "maturityAge": 0, "maturityMonths": 0, "notes": "1200 sqft, appreciating" },
+    { "id": "pf08", "category": "Savings A/c", "subCategory": "Liquidity", "owner": "Family", "invested": 400000, "currentValue": 400000, "maturityAge": 0, "maturityMonths": 0, "notes": "emergency buffer" }
+  ],
+  "gold": [
+    { "id": "gold01", "person": "Priya", "grams": 120, "perGramValue": 7200, "purchasePrice": 4800 },
+    { "id": "gold02", "person": "Arjun", "grams": 40, "perGramValue": 7200, "purchasePrice": 5600 },
+    { "id": "gold03", "person": "Priya", "grams": 65, "perGramValue": 7200, "purchasePrice": null }
+  ],
+  "loans": [
+    {
+      "id": "loan01",
+      "name": "Home Loan - Whitefield",
+      "lender": "HDFC",
+      "principal": 6500000,
+      "annualRate": 0.0875,
+      "tenureMonths": 240,
+      "emi": null,
+      "startDate": "2023-04-01",
+      "status": "active",
+      "notes": "primary residence under construction",
+      "addedMidway": false,
+      "prepayments": [
+        { "id": "pp01", "month": 12, "amount": 500000, "adjustMode": "tenure" },
+        { "id": "pp02", "month": 24, "amount": 300000, "adjustMode": "tenure" }
+      ]
+    },
+    {
+      "id": "loan02",
+      "name": "Car Loan - Creta",
+      "lender": "SBI",
+      "principal": 1100000,
+      "annualRate": 0.091,
+      "tenureMonths": 60,
+      "emi": 22900,
+      "startDate": "2024-09-01",
+      "status": "active",
+      "notes": "added while already paying",
+      "addedMidway": true,
+      "prepayments": []
+    },
+    {
+      "id": "loan03",
+      "name": "Personal Loan - Renovation",
+      "lender": "Bajaj Finserv",
+      "principal": 400000,
+      "annualRate": 0.135,
+      "tenureMonths": 24,
+      "emi": null,
+      "startDate": "2023-01-01",
+      "status": "closed",
+      "notes": "fully repaid",
+      "addedMidway": false,
+      "prepayments": []
+    }
+  ],
+  "goals": [
+    {
+      "id": "goal01",
+      "name": "Honda City ZX",
+      "type": "Car",
+      "value": 1800000,
+      "downPayment": 400000,
+      "loanAmount": 1400000,
+      "interest": 0.092,
+      "tenureMonths": 60,
+      "emi": 0,
+      "fulfilled": false,
+      "estimatedDate": "2027-03-01",
+      "currentMarketValue": 1865000,
+      "lastPriceFetch": "2026-06-01"
+    },
+    {
+      "id": "goal02",
+      "name": "Goa Family Vacation",
+      "type": "Travel",
+      "value": 250000,
+      "downPayment": 0,
+      "loanAmount": 0,
+      "interest": 0,
+      "tenureMonths": 0,
+      "emi": 0,
+      "fulfilled": false,
+      "estimatedDate": "2026-12-20",
+      "currentMarketValue": null,
+      "lastPriceFetch": null
+    },
+    {
+      "id": "goal03",
+      "name": "Aarav Engineering Education",
+      "type": "Education",
+      "value": 4000000,
+      "downPayment": 0,
+      "loanAmount": 2000000,
+      "interest": 0.105,
+      "tenureMonths": 84,
+      "emi": 0,
+      "fulfilled": false,
+      "estimatedDate": "2032-06-01",
+      "currentMarketValue": null,
+      "lastPriceFetch": null
+    },
+    {
+      "id": "goal04",
+      "name": "Kitchen Renovation",
+      "type": "Home",
+      "value": 350000,
+      "downPayment": 350000,
+      "loanAmount": 0,
+      "interest": 0,
+      "tenureMonths": 0,
+      "emi": 0,
+      "fulfilled": true,
+      "estimatedDate": "2025-11-01",
+      "currentMarketValue": null,
+      "lastPriceFetch": null
+    }
+  ],
+  "cards": [
+    {
+      "id": "card01", "name": "HDFC Regalia Gold", "bank": "HDFC", "owner": "Arjun",
+      "type": "Credit", "variant": "VISA", "number": "4111 1111 1111 1234",
+      "expiry": "2028-05-01", "cvv": "123", "pin": "", "fees": 2500,
+      "benefits": "5x reward points, 12 lounge visits/yr", "lounge": "Domestic + International",
+      "loungeCriteria": "Priority Pass", "status": ""
+    },
+    {
+      "id": "card02", "name": "ICICI Amazon Pay", "bank": "ICICI", "owner": "Priya",
+      "type": "Credit", "variant": "VISA", "number": "4222 2222 2222 5678",
+      "expiry": "2027-11-01", "cvv": "456", "pin": "", "fees": 0,
+      "benefits": "5% back on Amazon (Prime)", "lounge": "", "loungeCriteria": "", "status": ""
+    },
+    {
+      "id": "card03", "name": "SBI Cashback", "bank": "SBI", "owner": "Arjun",
+      "type": "Credit", "variant": "MasterCard", "number": "5333 3333 3333 9012",
+      "expiry": "2029-02-01", "cvv": "789", "pin": "", "fees": 999,
+      "benefits": "5% cashback online", "lounge": "", "loungeCriteria": "", "status": ""
+    },
+    {
+      "id": "card04", "name": "Axis Atlas (old)", "bank": "Axis", "owner": "Arjun",
+      "type": "Credit", "variant": "VISA", "number": "4444 4444 4444 3456",
+      "expiry": "2025-01-01", "cvv": "321", "pin": "", "fees": 5000,
+      "benefits": "travel miles", "lounge": "International", "loungeCriteria": "spend 1L/qtr",
+      "status": "closed"
+    },
+    {
+      "id": "card05", "name": "Sodexo Meal Card", "bank": "", "owner": "Priya",
+      "type": "Food Card", "variant": "RuPay", "number": "6077 0000 0000 7777",
+      "expiry": "2027-06-01", "cvv": "", "pin": "1234", "fees": 0,
+      "benefits": "tax-free meal allowance", "lounge": "", "loungeCriteria": "", "status": ""
+    }
+  ],
+  "documents": [
+    {
+      "id": "doc01", "type": "link", "title": "Home Loan Sanction Letter (Drive)",
+      "ref": "https://drive.example.com/home-loan-sanction",
+      "linkedType": "loan", "linkedId": "loan01", "notes": "HDFC ref #HL2023",
+      "addedOn": "2024-01-15T10:00:00"
+    },
+    {
+      "id": "doc02", "type": "link", "title": "Car Insurance Policy",
+      "ref": "https://drive.example.com/creta-insurance-2026",
+      "linkedType": "", "linkedId": "", "notes": "renewal due Sep 2026",
+      "addedOn": "2025-09-10T09:00:00"
+    }
+  ]
+}

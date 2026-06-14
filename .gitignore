@@ -4,6 +4,9 @@ CLAUDE.local.md
 # Personal financial data - NEVER commit this
 data/
 
+# Throwaway demo sandbox (server --demo seeds this from samples/) - never commit
+demo-data/
+
 # Claude Code local config (permissions, preview config — machine-specific)
 .claude/
 

@@ -63,6 +63,16 @@ function migrate() {
     }
   });
 
+  /* ---- schema migrations for new fields ---- */
+  DB.settings.personMeta = DB.settings.personMeta || {};   // { name: { dob: "YYYY-MM-DD" } }
+  DB.portfolio.forEach(p => { if (p.maturityAge === undefined) p.maturityAge = null; });
+  DB.loans.forEach(L => { if (!L.prepayments) L.prepayments = []; });
+  DB.gold.forEach(g => { if (g.purchasePrice === undefined) g.purchasePrice = null; });
+  DB.goals.forEach(g => {
+    if (g.currentMarketValue === undefined) g.currentMarketValue = null;
+    if (g.lastPriceFetch === undefined) g.lastPriceFetch = null;
+  });
+
   /* ---- income schema v2: flatten gross/ctc/inHand into components array ---- */
   (DB.income.persons || []).forEach(p => {
     if (p.components || p.salaryYears) return;
@@ -141,14 +151,33 @@ const el = (q, root) => (root || document).querySelector(q);
 const els = (q, root) => [...(root || document).querySelectorAll(q)];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const num = v => { const n = parseFloat(String(v).replace(/[,\s]/g, "")); return isFinite(n) ? n : 0; };
-/* strict amount validation: numbers only, no negatives. Empty = 0. */
-function validAmount(v) {
-  const s = String(v ?? "").trim().replace(/[,\s]/g, "");
-  if (s === "") return { ok: true, n: 0 };
-  if (!/^\d*\.?\d+$/.test(s)) return { ok: false };
-  const n = parseFloat(s);
-  return isFinite(n) && n >= 0 ? { ok: true, n } : { ok: false };
+/* num() and validAmount() live in finance-math.js (loaded first) */
+/* small ⓘ tooltip — explains a term/column without cluttering the page (native title) */
+const info = t => `<span class="info" title="${esc(t)}">ⓘ</span>`;
+/* date of birth helpers (DOB stored in DB.settings.personMeta[name].dob) */
+function personDob(name) { return (DB.settings.personMeta && DB.settings.personMeta[name] || {}).dob || null; }
+function personBirthYear(name) { const d = personDob(name); if (!d) return null; const y = new Date(d).getFullYear(); return isFinite(y) ? y : null; }
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/* Day / Month / Year dropdowns — reliable for far-past dates (native date pickers aren't).
+   Keyed by the person's index so element ids stay safe regardless of name. */
+function dobPickerHTML(i) {
+  const dob = personDob(DB.settings.persons[i]) || "";
+  const [y, m, d] = dob ? dob.split("-").map(n => parseInt(n, 10)) : ["", "", ""];
+  const nowY = new Date().getFullYear();
+  const opt = (v, lab, cur) => `<option value="${v}"${String(v) === String(cur) ? " selected" : ""}>${lab}</option>`;
+  const days = Array.from({ length: 31 }, (_, k) => opt(k + 1, k + 1, d)).join("");
+  const months = MONTH_ABBR.map((mn, k) => opt(k + 1, mn, m)).join("");
+  const years = Array.from({ length: nowY - 1929 }, (_, k) => { const yy = nowY - k; return opt(yy, yy, y); }).join("");
+  const sel = (id, ph, inner) => `<select id="dob_${id}_${i}" onchange="updPersonDobParts(${i})" style="width:auto;min-width:62px">
+    <option value="">${ph}</option>${inner}</select>`;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap">${sel("d", "Day", days)}${sel("m", "Mon", months)}${sel("y", "Year", years)}</div>`;
+}
+function updPersonDobParts(i) {
+  const name = DB.settings.persons[i];
+  const d = el("#dob_d_" + i).value, m = el("#dob_m_" + i).value, y = el("#dob_y_" + i).value;
+  if (!y && !m && !d) { updPersonDob(name, ""); return; }   // cleared
+  if (!y || !m || !d) return;                                // still choosing — wait for all three
+  updPersonDob(name, `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
 }
 
 function fmtMoney(v, compact) {
@@ -182,58 +211,10 @@ function toast(msg, isErr) {
 }
 
 /* ================= financial math ================= */
-/* EMI for principal P, annual rate (e.g. 0.0915), n months */
-function calcEMI(P, annualRate, n) {
-  if (!P || !n) return 0;
-  const r = annualRate / 12;
-  if (!r) return P / n;
-  const f = Math.pow(1 + r, n);
-  return P * r * f / (f - 1);
-}
-/* outstanding principal given EMI, rate, remaining months (joining a loan midway) */
-function outstandingFromEMI(emi, annualRate, remMonths) {
-  const r = annualRate / 12;
-  if (!r) return emi * remMonths;
-  return emi * (1 - Math.pow(1 + r, -remMonths)) / r;
-}
-/* full amortization schedule. extraMonthly = optional prepayment each month */
-function amortSchedule(P, annualRate, n, emiOverride, extraMonthly) {
-  const r = annualRate / 12;
-  const emi = emiOverride || calcEMI(P, annualRate, n);
-  const rows = [];
-  let bal = P, totInt = 0, m = 0;
-  while (bal > 0.5 && m < 1200) {
-    m++;
-    const interest = bal * r;
-    let principal = emi - interest + (extraMonthly || 0);
-    if (principal <= 0) return { rows, emi, totalInterest: Infinity, months: Infinity, diverges: true };
-    if (principal > bal) principal = bal;
-    bal -= principal;
-    totInt += interest;
-    rows.push({ m, emi: principal + interest, interest, principal, balance: bal });
-  }
-  return { rows, emi, totalInterest: totInt, months: m, diverges: false };
-}
-/* months elapsed since a date */
-function monthsSince(dateStr) {
-  if (!dateStr) return 0;
-  const d = new Date(dateStr), now = new Date();
-  if (isNaN(d)) return 0;
-  return Math.max(0, (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth());
-}
-/* derived live state of a loan object */
-function loanState(L) {
-  const rate = num(L.annualRate);
-  const emi = L.emi ? num(L.emi) : calcEMI(num(L.principal), rate, num(L.tenureMonths));
-  const sched = amortSchedule(num(L.principal), rate, num(L.tenureMonths), emi || null);
-  const paidMonths = Math.min(monthsSince(L.startDate), sched.rows.length);
-  const cur = paidMonths > 0 ? sched.rows[paidMonths - 1].balance : num(L.principal);
-  const paidInterest = sched.rows.slice(0, paidMonths).reduce((s, x) => s + x.interest, 0);
-  const paidPrincipal = num(L.principal) - cur;
-  return { emi, sched, paidMonths, remMonths: Math.max(0, sched.rows.length - paidMonths),
-           balance: cur, paidInterest, paidPrincipal,
-           totalPayable: num(L.principal) + sched.totalInterest, totalInterest: sched.totalInterest };
-}
+/* calcEMI, outstandingFromEMI, amortSchedule, monthsSince, loanState now live in
+   finance-math.js (loaded before app.js) so they can be unit-tested under Node. */
+function goldInvested() { return computeGoldInvested(DB.gold); }
+function goldGain() { return computeGoldGain(DB.gold); }
 
 /* ================= modal framework ================= */
 function openModal(html, wide) {
@@ -421,6 +402,79 @@ function donutChart(items, size) {
     <div class="legend" style="flex-direction:column;align-items:flex-start">${legend}</div></div>`;
 }
 
+/* paired horizontal bars per row — e.g. Invested vs Current value, with return % */
+function compareBars(items, aLabel, bLabel, aColor, bColor) {
+  aColor = aColor || "#5b7a99"; bColor = bColor || "var(--green)";
+  if (!items.length) return '<div class="empty">No data</div>';
+  const max = Math.max(...items.flatMap(i => [i.a, i.b]), 1);
+  const legend = `<div class="legend" style="margin-bottom:14px">
+    <span><i class="dot" style="background:${aColor}"></i>${esc(aLabel)}</span>
+    <span><i class="dot" style="background:${bColor}"></i>${esc(bLabel)}</span></div>`;
+  const rows = items.map(i => {
+    const ret = i.a ? (i.b - i.a) / i.a : 0;
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:5px">
+        <span title="${esc(i.label)}" style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.label)}</span>
+        <span class="small muted" style="white-space:nowrap">${fmtMoney(i.a)} → <b style="color:var(--ink)">${fmtMoney(i.b)}</b>
+          <span class="${ret >= 0 ? "pos" : "neg"}">${i.a ? fmtPct(ret) : "–"}</span></span>
+      </div>
+      <div class="bar-track" style="height:11px;margin-bottom:4px"><div class="bar-fill" style="width:${(i.a / max * 100).toFixed(1)}%;background:${aColor}"></div></div>
+      <div class="bar-track" style="height:11px"><div class="bar-fill" style="width:${(i.b / max * 100).toFixed(1)}%;background:${bColor}"></div></div>
+    </div>`;
+  }).join("");
+  return legend + rows;
+}
+
+/* single horizontal bar split into proportional colored segments + legend */
+function stackedBar(segments, opts) {
+  opts = opts || {};
+  segments = segments.filter(s => s.value > 0);
+  const total = opts.total || segments.reduce((s, x) => s + x.value, 0);
+  if (total <= 0) return '<div class="empty">No data</div>';
+  const segs = segments.map((s, ix) => {
+    const pct = s.value / total * 100;
+    return `<div title="${esc(s.label)}: ${fmtMoney(s.value)} (${pct.toFixed(1)}%)"
+      style="width:${pct.toFixed(2)}%;background:${s.color || PALETTE[ix % PALETTE.length]};display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;overflow:hidden;white-space:nowrap">${pct >= 9 ? Math.round(pct) + "%" : ""}</div>`;
+  }).join("");
+  const legend = segments.map((s, ix) =>
+    `<span><i class="dot" style="background:${s.color || PALETTE[ix % PALETTE.length]}"></i>${esc(s.label)} <b>${fmtMoney(s.value)}</b></span>`).join("");
+  return `<div style="display:flex;height:28px;border-radius:8px;overflow:hidden;box-shadow:var(--shadow)">${segs}</div>
+    <div class="legend" style="margin-top:12px">${legend}</div>`;
+}
+
+/* semicircle gauge (0..1) with a big centre label */
+function gaugeArc(frac, bigLabel, subLabel, color) {
+  const p = Math.max(0, Math.min(1, frac || 0));
+  color = color || "var(--accent)";
+  const W = 200, H = 118, cx = 100, cy = 104, r = 80, sw = 18;
+  const pt = a => [cx + r * Math.cos(a), cy - r * Math.sin(a)];
+  const [lx, ly] = pt(Math.PI), [rx, ry] = pt(0), [ex, ey] = pt(Math.PI * (1 - p));
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin:0 auto">
+    <path d="M ${lx.toFixed(1)} ${ly.toFixed(1)} A ${r} ${r} 0 0 1 ${rx.toFixed(1)} ${ry.toFixed(1)}" fill="none" stroke="#eef1f7" stroke-width="${sw}" stroke-linecap="round"/>
+    <path d="M ${lx.toFixed(1)} ${ly.toFixed(1)} A ${r} ${r} 0 0 1 ${ex.toFixed(1)} ${ey.toFixed(1)}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>
+    <text x="${cx}" y="${cy - 12}" text-anchor="middle" font-size="27" font-weight="700" fill="var(--ink)">${esc(bigLabel)}</text>
+    <text x="${cx}" y="${cy + 7}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(subLabel || "")}</text>
+  </svg>`;
+}
+
+/* diverging bars centred on zero — positive (gain) extends right/green, negative (loss) left/red */
+function signedBars(items) {
+  if (!items.length) return '<div class="empty">No data</div>';
+  const max = Math.max(...items.map(i => Math.abs(i.value)), 1);
+  return items.map(i => {
+    const pct = Math.abs(i.value) / max * 50;
+    const pos = i.value >= 0;
+    return `<div class="bar-row" style="font-size:12.5px">
+      <div class="bar-label" title="${esc(i.label)}">${esc(i.label)}</div>
+      <div style="flex:1;display:flex;align-items:center;height:18px;position:relative">
+        <div style="position:absolute;left:50%;top:1px;bottom:1px;border-left:1px solid var(--line)"></div>
+        <div style="position:absolute;${pos ? "left" : "right"}:50%;width:${pct.toFixed(1)}%;height:11px;border-radius:4px;background:${pos ? "var(--green)" : "var(--red)"}"></div>
+      </div>
+      <div class="bar-val ${pos ? "pos" : "neg"}">${fmtMoney(i.value)}</div>
+    </div>`;
+  }).join("");
+}
+
 /* ================= aggregations ================= */
 function latestYearEntry(p) {
   const yrs = p.salaryYears || [];
@@ -433,29 +487,9 @@ function selectedYearEntry(p) {
   if (incomeYear === null) return latestYearEntry(p);
   return yrs.find(y => y.year === incomeYear) || null;
 }
-function incomeTotalsForYear(p, yr) {
-  if (!yr) yr = { components: [], deductions: [], variablePctEligible: 0, variablePctEarned: null, oneTimeBonus: 0 };
-  const gross = (yr.components || []).filter(c => c.scope !== "ctc").reduce((s, c) => s + num(c.amount), 0);
-  const ctcOnly = (yr.components || []).filter(c => c.scope === "ctc").reduce((s, c) => s + num(c.amount), 0);
-  const ded = (yr.deductions || []).reduce((s, c) => s + num(c.amount), 0);
-  const monthlyCtc = gross + ctcOnly;
-  const yearlyCtcBase = monthlyCtc * 12;
-  const elPct = num(yr.variablePctEligible || 0) / 100;
-  const hasEarned = yr.variablePctEarned !== null && yr.variablePctEarned !== undefined && yr.variablePctEarned !== "";
-  const earnedPct = hasEarned ? num(yr.variablePctEarned) / 100 : null;
-  const varPct = earnedPct !== null ? earnedPct : elPct;
-  const variablePay = Math.round(yearlyCtcBase * varPct);
-  const oneTimeBonus = num(yr.oneTimeBonus || 0);
-  return {
-    gross, ctcOnly, ctc: monthlyCtc, ded, inHand: gross - ded,
-    monthlyCtc, yearlyCtcBase, yearlyCtc: yearlyCtcBase + variablePay,
-    variablePay, oneTimeBonus, totalBonus: variablePay + oneTimeBonus,
-    eligiblePct: num(yr.variablePctEligible || 0),
-    earnedPct: hasEarned ? num(yr.variablePctEarned) : null
-  };
-}
+/* incomeTotalsForYear(yr) lives in finance-math.js (loaded first) */
 /* Uses latest year always — safe for dashboard regardless of income page filter */
-function incomeTotals(p) { return incomeTotalsForYear(p, latestYearEntry(p)); }
+function incomeTotals(p) { return incomeTotalsForYear(latestYearEntry(p)); }
 function totalInHand() {
   return (DB.income.persons || []).reduce((s, p) => s + incomeTotals(p).inHand, 0);
 }
@@ -477,41 +511,138 @@ function liabilitiesTotal() { return activeLoans().reduce((s, L) => s + loanStat
 /* ================= DASHBOARD ================= */
 PAGES.dashboard = () => {
   const pt = portfolioTotals(), gold = goldTotal(), liab = liabilitiesTotal();
+  const gg = goldGain();
   const assets = pt.cur + gold, net = assets - liab;
-  const inHand = totalInHand(), exp = totalExpenses(), balance = inHand - exp;
-  const investMonthly = DB.monthlyInvestments.reduce((s, i) => s + num(i.amount), 0);
 
-  // asset allocation by subCategory
+  /* ---- cashflow ---- */
+  const inHand = totalInHand();
+  const pureExp = pureExpenses();
+  const emiTotal = activeLoans().reduce((s, L) => s + loanState(L).emi, 0);
+  const invInHand = DB.monthlyInvestments.filter(i => (i.deductedFrom || "IN HAND") === "IN HAND").reduce((s, i) => s + num(i.amount), 0);
+  const outflow = pureExp + emiTotal + invInHand;
+  const surplus = inHand - outflow;
+  const savingsRate = inHand > 0 ? (invInHand + surplus) / inHand : 0;
+  const gaugeColor = savingsRate >= 0.2 ? "var(--green)" : savingsRate >= 0 ? "var(--amber)" : "var(--red)";
+
+  const allocSegs = [
+    { label: "Living expenses", value: pureExp, color: "#d6493f" },
+    { label: "Loan EMIs", value: emiTotal, color: "#e6a323" },
+    { label: "Investments", value: invInHand, color: "#2456e6" },
+    { label: "Surplus", value: Math.max(0, surplus), color: "#12a06b" },
+  ];
+  const allocTotal = Math.max(inHand, outflow) || 1;
+
+  // spend by section (expense groups, no EMI)
+  const byGroup = {};
+  DB.expenses.forEach(e => { const k = e.group || "Other"; byGroup[k] = (byGroup[k] || 0) + num(e.amount); });
+  const groupItems = Object.entries(byGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    .map(([label, value], ix) => ({ label, value, color: PALETTE[ix % PALETTE.length] }));
+
+  // monthly outflow by group (expenses + EMIs) — bar
+  const grp = { ...byGroup };
+  if (emiTotal) grp["Loan EMIs"] = (grp["Loan EMIs"] || 0) + emiTotal;
+  const grpItems = Object.entries(grp).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+
+  // monthly investment mix donut (all monthly investments by instrument)
+  const investByGroup = {};
+  DB.monthlyInvestments.forEach(i => { const k = i.category || "Other"; investByGroup[k] = (investByGroup[k] || 0) + num(i.amount); });
+  const investItems = Object.entries(investByGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+
+  /* ---- net worth & assets ---- */
   const alloc = {};
   DB.portfolio.forEach(p => { const k = p.subCategory || "Other"; alloc[k] = (alloc[k] || 0) + num(p.currentValue); });
   if (gold) alloc["Physical Gold"] = (alloc["Physical Gold"] || 0) + gold;
   const allocItems = Object.entries(alloc).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
 
-  // expense by group
-  const grp = {};
-  DB.expenses.forEach(e => { const k = e.group || "Other"; grp[k] = (grp[k] || 0) + num(e.amount); });
-  const emiTotal = activeLoans().reduce((s, L) => s + loanState(L).emi, 0);
-  if (emiTotal) grp["Loan EMIs"] = (grp["Loan EMIs"] || 0) + emiTotal;
-  const grpItems = Object.entries(grp).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+  const TYPE_MAP = { "Equity": "Equity", "Debt": "Debt/Fixed", "Fixed": "Debt/Fixed", "Real estate": "Real Estate",
+    "Liquidity": "Liquid", "Gold": "Gold", "Other": "Other" };
+  const byType = {};
+  DB.portfolio.forEach(p => { const k = TYPE_MAP[p.subCategory] || "Other"; byType[k] = (byType[k] || 0) + num(p.currentValue); });
+  if (gold) byType["Gold"] = (byType["Gold"] || 0) + gold;
+  const byTypeItems = Object.entries(byType).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
 
   const goalsOpen = DB.goals.filter(g => !g.fulfilled);
 
+  // net worth waterfall SVG
+  const nwSVG = (() => {
+    const W = 420, H = 100, pad = 10;
+    const maxV = Math.max(assets, liab, 1);
+    const aW = Math.max(4, (assets / maxV) * (W - pad * 2));
+    const lW = Math.max(4, (liab / maxV) * (W - pad * 2));
+    const nW = Math.max(4, (Math.abs(net) / maxV) * (W - pad * 2));
+    const labels = (v, label, x, w, color, textColor) =>
+      `<rect x="${x}" y="20" width="${w}" height="28" rx="5" fill="${color}"/>
+       <text x="${x + w / 2}" y="38" text-anchor="middle" font-size="11" font-weight="700" fill="${textColor}">${fmtMoney(v, true)}</text>
+       <text x="${x + w / 2}" y="60" text-anchor="middle" font-size="10" fill="#6b7385">${label}</text>`;
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin-top:8px">
+      ${labels(assets, "Assets", pad, aW, "#e3f5ec", "#108a4d")}
+      ${liab > 0 ? labels(liab, "Liabilities", pad, lW, "#fbe9ec", "#cc3344") : ""}
+      ${labels(Math.abs(net), "Net Worth", pad, nW, net >= 0 ? "#e8eefc" : "#fbe9ec", net >= 0 ? "#2456e6" : "#cc3344")}
+    </svg>`;
+  })();
+
   return pageHead(esc(DB.settings.appName || "Family Finance"),
       "Snapshot of your family's money — " + fmtDate(new Date().toISOString())) + `
+
   <div class="grid kpis">
     <div class="kpi"><div class="label">Net Worth</div><div class="value ${net >= 0 ? "pos" : "neg"}">${fmtMoney(net)}</div>
       <div class="delta muted">${fmtMoney(assets)} assets − ${fmtMoney(liab)} debt</div></div>
-    <div class="kpi"><div class="label">Monthly In-hand Income</div><div class="value">${fmtMoney(inHand)}</div></div>
-    <div class="kpi"><div class="label">Monthly Outflow</div><div class="value">${fmtMoney(exp)}</div>
-      <div class="delta muted">incl. EMIs & investments</div></div>
-    <div class="kpi"><div class="label">Monthly Balance</div><div class="value ${balance >= 0 ? "pos" : "neg"}">${fmtMoney(balance)}</div>
-      <div class="delta muted">${inHand ? fmtPct(balance / inHand) + " of in-hand" : ""}</div></div>
-    <div class="kpi"><div class="label">Investing / Month</div><div class="value">${fmtMoney(investMonthly)}</div>
-      <div class="delta muted">${inHand ? fmtPct(investMonthly / inHand) + " savings rate (vs in-hand)" : ""}</div></div>
+    <div class="kpi"><div class="label">Monthly In-Hand</div><div class="value">${fmtMoney(inHand)}</div></div>
+    <div class="kpi"><div class="label">Monthly Outflow</div><div class="value">${fmtMoney(outflow)}</div>
+      <div class="delta muted">incl. EMIs &amp; investments</div></div>
+    <div class="kpi"><div class="label">Monthly Surplus</div><div class="value ${surplus >= 0 ? "pos" : "neg"}">${fmtMoney(surplus)}</div>
+      <div class="delta muted">${surplus < 0 ? "overspending in-hand" : "after all outflow"}</div></div>
+    <div class="kpi"><div class="label">Savings Rate</div><div class="value ${savingsRate >= 0 ? "pos" : "neg"}">${fmtPct(savingsRate)}</div>
+      <div class="delta muted">invested + surplus vs in-hand</div></div>
+  </div>
+
+  <div class="section-title">Monthly Cashflow</div>
+  <div class="panel"><h2>Where Your In-Hand Goes</h2>
+    <div class="grid two-col" style="align-items:center">
+      <div>${stackedBar(allocSegs, { total: allocTotal })}
+        ${surplus < 0 ? `<p class="small neg mt">⚠ Outflow exceeds in-hand by ${fmtMoney(-surplus)}.</p>` : ""}</div>
+      <div style="text-align:center">${gaugeArc(savingsRate, fmtPct(savingsRate), "of in-hand kept", gaugeColor)}
+        <div class="small muted" style="margin-top:4px">Investments + surplus vs in-hand income</div></div>
+    </div>
   </div>
   <div class="grid two-col">
-    <div class="panel"><h2>Asset Allocation</h2>${donutChart(allocItems)}</div>
-    <div class="panel"><h2>Monthly Expenses by Group</h2>${barChart(grpItems)}</div>
+    <div class="panel"><h2>Spend by Section</h2>${groupItems.length ? donutChart(groupItems) : '<div class="empty">No expenses yet</div>'}</div>
+    <div class="panel"><h2>Monthly Investment Mix</h2>${investItems.length ? donutChart(investItems) : '<div class="empty">No investments yet</div>'}</div>
+  </div>
+  <div class="panel"><h2>Monthly Outflow by Group</h2>${barChart(grpItems)}</div>
+
+  <div class="section-title">Net Worth &amp; Assets</div>
+  <div class="panel">
+    <h2>Assets · Liabilities · Net Worth</h2>
+    <div class="grid kpis" style="margin-bottom:12px">
+      <div class="kpi"><div class="label">Total Assets</div><div class="value pos">${fmtMoney(assets)}</div>
+        <div class="delta muted">portfolio + gold</div></div>
+      ${byTypeItems.map(t => `<div class="kpi"><div class="label">${esc(t.label)}</div>
+        <div class="value">${fmtMoney(t.value)}</div>
+        <div class="delta muted">${fmtPct(t.value / (assets || 1))} of assets</div></div>`).join("")}
+      <div class="kpi"><div class="label">Total Liabilities</div><div class="value ${liab ? "neg" : ""}">${fmtMoney(liab)}</div>
+        <div class="delta muted">${activeLoans().length} active loan(s)</div></div>
+    </div>
+    ${nwSVG}
+  </div>
+  <div class="grid two-col">
+    <div class="panel"><h2>Asset Allocation</h2>${allocItems.length ? donutChart(allocItems) : '<div class="empty">No holdings yet</div>'}</div>
+    <div class="panel"><h2>Investment Performance</h2>
+      <div class="grid kpis" style="margin-bottom:0">
+        <div class="kpi"><div class="label">Portfolio Invested</div><div class="value">${fmtMoney(pt.inv)}</div></div>
+        <div class="kpi"><div class="label">Portfolio Value</div><div class="value">${fmtMoney(pt.cur)}</div></div>
+        <div class="kpi"><div class="label">Portfolio Gain</div><div class="value ${pt.cur - pt.inv >= 0 ? "pos" : "neg"}">${fmtMoney(pt.cur - pt.inv)}</div>
+          <div class="delta muted">${pt.inv ? fmtPct((pt.cur - pt.inv) / pt.inv) + " overall" : ""}</div></div>
+        <div class="kpi"><div class="label">Gold Value</div><div class="value">${fmtMoney(gold)}</div>
+          <div class="delta muted">${fmtNum(DB.gold.reduce((s, g) => s + num(g.grams), 0))} g</div></div>
+        ${gg.inv > 0 ? `<div class="kpi"><div class="label">Gold Gain</div><div class="value ${gg.gain >= 0 ? "pos" : "neg"}">${fmtMoney(gg.gain)}</div>
+          <div class="delta muted">${fmtPct(gg.gain / gg.inv)} on ${fmtMoney(gg.inv)} invested</div></div>` : ""}
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">Loans &amp; Goals</div>
+  <div class="grid two-col">
     <div class="panel"><h2>Active Loans</h2>${
       activeLoans().length ? activeLoans().map(L => {
         const st = loanState(L);
@@ -526,19 +657,10 @@ PAGES.dashboard = () => {
       goalsOpen.length ? `<div class="table-wrap"><table><thead><tr><th>Goal</th><th class="num">Value</th><th>Target</th></tr></thead><tbody>${
         goalsOpen.sort((a, b) => new Date(a.estimatedDate || "2999") - new Date(b.estimatedDate || "2999"))
           .map(g => `<tr><td>${esc(g.name)} <span class="chip gray">${esc(g.type || "")}</span></td>
-            <td class="num">${fmtMoney(num(g.value))}</td><td>${fmtDate(g.estimatedDate)}</td></tr>`).join("")
+            <td class="num">${fmtMoney(num(g.currentMarketValue || g.value))}</td><td>${fmtDate(g.estimatedDate)}</td></tr>`).join("")
       }</tbody></table></div>` : '<div class="empty">No open goals</div>'
     }</div>
-  </div>
-  <div class="panel"><h2>Investment Performance</h2>
-    <div class="grid kpis" style="margin-bottom:0">
-      <div class="kpi"><div class="label">Invested</div><div class="value">${fmtMoney(pt.inv)}</div></div>
-      <div class="kpi"><div class="label">Current Value</div><div class="value">${fmtMoney(pt.cur)}</div></div>
-      <div class="kpi"><div class="label">Unrealised Gain</div><div class="value ${pt.cur - pt.inv >= 0 ? "pos" : "neg"}">${fmtMoney(pt.cur - pt.inv)}</div>
-        <div class="delta muted">${pt.inv ? fmtPct((pt.cur - pt.inv) / pt.inv) + " overall return" : ""}</div></div>
-      <div class="kpi"><div class="label">Physical Gold</div><div class="value">${fmtMoney(gold)}</div>
-        <div class="delta muted">${fmtNum(DB.gold.reduce((s, g) => s + num(g.grams), 0))} grams</div></div>
-    </div></div>`;
+  </div>`;
 };
 
 /* ================= INCOME ================= */
@@ -555,7 +677,7 @@ PAGES.income = () => {
 
   /* family-level totals */
   const familySummary = persons.length > 0 ? (() => {
-    const tots = persons.map(p => incomeTotalsForYear(p, selectedYearEntry(p) || latestYearEntry(p)));
+    const tots = persons.map(p => incomeTotalsForYear(selectedYearEntry(p) || latestYearEntry(p)));
     const fMonthlyInHand = tots.reduce((s, t) => s + t.inHand, 0);
     const fMonthlyCtc    = tots.reduce((s, t) => s + t.monthlyCtc, 0);
     const fYearlyCtc     = tots.reduce((s, t) => s + t.yearlyCtc + t.oneTimeBonus, 0);
@@ -611,7 +733,7 @@ function incomeEarnerHTML(p, pi) {
       <button class="btn small secondary" onclick="addSalaryYear(${pi})">+ Add salary for this year</button></div></div>`;
   }
 
-  const t = incomeTotalsForYear(p, yr);
+  const t = incomeTotalsForYear(yr);
 
   const compRows = (yr.components || []).map((c, ci) => `
     <tr>
@@ -986,7 +1108,7 @@ function salaryGrowthChart(persons) {
   if (allYears.length < 2) return "";
   const series = multi.map((p, i) => {
     const map = {};
-    (p.salaryYears || []).forEach(yr => { map[yr.year] = incomeTotalsForYear(p, yr).yearlyCtc; });
+    (p.salaryYears || []).forEach(yr => { map[yr.year] = incomeTotalsForYear(yr).yearlyCtc; });
     return { name: p.name, color: PALETTE[i % PALETTE.length], map };
   });
   const maxVal = Math.max(...series.flatMap(s => Object.values(s.map)), 1);
@@ -1057,10 +1179,96 @@ PAGES.expenses = () => {
   const total = pureExpenses();
   const emiTotal = activeLoans().reduce((s, L) => s + loanState(L).emi, 0);
   const invTotal = DB.monthlyInvestments.filter(i => (i.deductedFrom || "IN HAND") === "IN HAND").reduce((s, i) => s + num(i.amount), 0);
+
+  /* ---------- analytics ---------- */
+  const inHand = totalInHand();
+  const surplus = inHand - total - emiTotal - invTotal;
+  const kept = invTotal + surplus;                 // money not consumed (saved/invested + leftover)
+  const savingsRate = inHand > 0 ? kept / inHand : 0;
+
+  const byGroup = {};
+  DB.expenses.forEach(e => { const g = e.group || "Other"; byGroup[g] = (byGroup[g] || 0) + num(e.amount); });
+  const groupItems = Object.entries(byGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    .map(([label, value], ix) => ({ label, value, color: PALETTE[ix % PALETTE.length] }));
+
+  const byCat = {};
+  DB.expenses.forEach(e => { const k = e.category || "Other"; byCat[k] = (byCat[k] || 0) + num(e.amount); });
+  const catItems = Object.entries(byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([label, value]) => ({ label, value }));
+  const topCat = catItems[0];
+
+  const byPerson = {}; let shared = 0;
+  DB.expenses.forEach(e => {
+    const amt = num(e.amount);
+    if (groupDim(e.group) === "person" && e.person) byPerson[e.person] = (byPerson[e.person] || 0) + amt;
+    else shared += amt;
+  });
+  const personItems = [...Object.entries(byPerson).map(([label, value]) => ({ label, value })),
+    ...(shared > 0 ? [{ label: "Household / Shared", value: shared, color: "#5b7a99" }] : [])]
+    .sort((a, b) => b.value - a.value);
+
+  const byLoc = {};
+  DB.expenses.forEach(e => { if (groupDim(e.group) === "location" && e.location) byLoc[e.location] = (byLoc[e.location] || 0) + num(e.amount); });
+  const locItems = Object.entries(byLoc).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    .map(([label, value], ix) => ({ label, value, color: PALETTE[(ix + 4) % PALETTE.length] }));
+
+  const hasPerson = Object.keys(byPerson).length > 0;
+  const hasLoc = locItems.length > 0;
+
+  const allocSegs = [
+    { label: "Living expenses", value: total, color: "#d6493f" },
+    { label: "Loan EMIs", value: emiTotal, color: "#e6a323" },
+    { label: "Investments", value: invTotal, color: "#2456e6" },
+    { label: "Surplus", value: Math.max(0, surplus), color: "#12a06b" },
+  ];
+  const allocTotal = Math.max(inHand, total + emiTotal + invTotal) || 1;
+  const gaugeColor = savingsRate >= 0.2 ? "var(--green)" : savingsRate >= 0 ? "var(--amber)" : "var(--red)";
+
+  const sectionBreakdown = Object.entries(byGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([g]) => {
+    const cats = {};
+    DB.expenses.filter(e => (e.group || "Other") === g).forEach(e => { cats[e.category || "Other"] = (cats[e.category || "Other"] || 0) + num(e.amount); });
+    const segs = Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([label, value], ix) => ({ label, value, color: PALETTE[ix % PALETTE.length] }));
+    return `<div style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:7px">
+        <span>${esc(g)}</span><span class="muted">${fmtMoney(byGroup[g])}</span></div>
+      ${stackedBar(segs, { total: byGroup[g] })}</div>`;
+  }).join("");
+
+  const analytics = (total || inHand) ? `
+  <div class="grid kpis">
+    <div class="kpi"><div class="label">Recurring Spend</div><div class="value">${fmtMoney(total)}</div>
+      <div class="delta muted">${inHand ? fmtPct(total / inHand) + " of in-hand" : ""}</div></div>
+    <div class="kpi"><div class="label">Total Outflow</div><div class="value">${fmtMoney(total + emiTotal + invTotal)}</div>
+      <div class="delta muted">incl. EMIs &amp; investments</div></div>
+    <div class="kpi"><div class="label">Biggest Category</div><div class="value" style="font-size:18px">${topCat ? esc(topCat.label) : "—"}</div>
+      <div class="delta muted">${topCat ? fmtMoney(topCat.value) + "/mo" : ""}</div></div>
+    <div class="kpi"><div class="label">Monthly Surplus</div><div class="value ${surplus >= 0 ? "pos" : "neg"}">${fmtMoney(surplus)}</div>
+      <div class="delta muted">${surplus < 0 ? "overspending in-hand" : "after all outflow"}</div></div>
+  </div>
+  <div class="panel"><h2>Where Your In-Hand Goes</h2>
+    <div class="grid two-col" style="align-items:center">
+      <div>${stackedBar(allocSegs, { total: allocTotal })}
+        ${surplus < 0 ? `<p class="small neg mt">⚠ Outflow exceeds in-hand by ${fmtMoney(-surplus)}.</p>` : ""}</div>
+      <div style="text-align:center">${gaugeArc(savingsRate, fmtPct(savingsRate), "of in-hand kept", gaugeColor)}
+        <div class="small muted" style="margin-top:4px">Investments + surplus vs in-hand income</div></div>
+    </div>
+  </div>
+  <div class="grid two-col">
+    <div class="panel"><h2>Spend by Section</h2>${donutChart(groupItems)}</div>
+    <div class="panel"><h2>Top Categories</h2>${barChart(catItems)}</div>
+  </div>
+  ${(hasPerson || hasLoc) ? `<div class="grid two-col">
+    ${hasPerson ? `<div class="panel"><h2>Spend by Person</h2>${barChart(personItems)}
+      <p class="small muted mt">Sections that track a person are attributed; everything else counts as Household / Shared.</p></div>` : ""}
+    ${hasLoc ? `<div class="panel"><h2>Spend by Location</h2>${donutChart(locItems)}</div>` : ""}
+  </div>` : ""}
+  <div class="panel"><h2>Section Breakdown by Category</h2>${sectionBreakdown || '<div class="empty">No data</div>'}</div>` : "";
+
   return pageHead("Monthly Expenses",
     `Recurring spend: <b>${fmtMoney(total)}</b> &nbsp;·&nbsp; + loan EMIs ${fmtMoney(emiTotal)} &nbsp;·&nbsp; + in-hand investments ${fmtMoney(invTotal)} &nbsp;=&nbsp; <b>${fmtMoney(total + emiTotal + invTotal)}</b> total outflow`,
     `<button class="btn" onclick="addExpense()">+ Add Expense</button>
      <button class="btn secondary" onclick="addExpenseSection()">+ Add Section</button>`) +
+    analytics +
     (Object.entries(groups).map(([g, items]) => {
       const sub = items.reduce((s, [e]) => s + num(e.amount), 0);
       const dim = groupDim(g);
@@ -1176,10 +1384,17 @@ PAGES.investments = () => {
   return pageHead("Monthly Investments / Savings",
     `Total committed per month: <b>${fmtMoney(total)}</b>`,
     `<button class="btn" onclick="addInvestment()">+ Add</button>`) + `
+  <div class="page-note">ⓘ&nbsp;<div><b>These are family-level commitments.</b>
+    <b>Person</b> is whose <i>name</i> the investment is held in — not who earns it.
+    <b>Deducted From</b> says where the money leaves the <i>family's</i> salary:
+    <b>IN HAND</b> reduces spendable income, while <b>GROSS</b> / <b>CTC</b> come out before in-hand (e.g. EPF, employer NPS).</div></div>
   <div class="grid kpis">${Object.entries(byPerson).map(([p, v]) =>
-    `<div class="kpi"><div class="label">${esc(p)}</div><div class="value">${fmtMoney(v)}</div></div>`).join("")}</div>
+    `<div class="kpi"><div class="label">In ${esc(p)}'s name</div><div class="value">${fmtMoney(v)}</div></div>`).join("")}</div>
   <div class="panel"><div class="table-wrap"><table>
-    <thead><tr><th>Instrument</th><th>Person</th><th>Deducted From</th><th class="num">Monthly</th><th style="width:70px"></th></tr></thead>
+    <thead><tr><th>Instrument</th>
+      <th>Held in name of${info("Whose name the investment is under — not necessarily the earner. Family-level commitment.")}</th>
+      <th>Deducted From${info("Where it leaves the family salary: IN HAND = from spendable income; GROSS / CTC = before in-hand (e.g. EPF, employer NPS).")}</th>
+      <th class="num">Monthly</th><th style="width:70px"></th></tr></thead>
     <tbody>${DB.monthlyInvestments.map((iv, i) => `
       <tr><td>${esc(iv.category)}</td><td>${esc(iv.person || "—")}</td>
       <td><span class="chip ${iv.deductedFrom === "CTC" ? "amber" : iv.deductedFrom === "GROSS" ? "gray" : "green"}">${esc(iv.deductedFrom || "IN HAND")}</span></td>
@@ -1188,7 +1403,6 @@ PAGES.investments = () => {
           <button class="icon-btn danger" onclick="delInvestment(${i})">✕</button></td></tr>`).join("")}
       <tr class="subtotal"><td colspan="3">Total</td><td class="num">${fmtMoney(total)}</td><td></td></tr>
     </tbody></table></div>
-    <p class="muted small mt">"Deducted From" shows where the money comes out: IN HAND reduces your spendable salary; CTC / GROSS are deducted before in-hand (e.g. PF, employer NPS).</p>
   </div>`;
 };
 function investmentFields(iv) {
@@ -1196,8 +1410,8 @@ function investmentFields(iv) {
   return [
     { name: "category", label: "Instrument", type: "combo", listKey: "investmentInstruments", value: iv.category || "" },
     { type: "row", fields: [
-      { name: "person", label: "Person", type: "combo", listKey: "persons", value: iv.person || "", allowEmpty: true },
-      { name: "deductedFrom", label: "Deducted from", type: "select", value: iv.deductedFrom || "IN HAND", options: ["IN HAND", "GROSS", "CTC"] }]},
+      { name: "person", label: "Held in name of", type: "combo", listKey: "persons", value: iv.person || "", allowEmpty: true },
+      { name: "deductedFrom", label: "Deducted from (family salary)", type: "select", value: iv.deductedFrom || "IN HAND", options: ["IN HAND", "GROSS", "CTC"] }]},
     { name: "amount", label: "Monthly amount", type: "number", step: "any", value: iv.amount ?? "", required: true },
   ];
 }
@@ -1227,47 +1441,142 @@ function delInvestment(i) {
 /* ================= PORTFOLIO ================= */
 PAGES.portfolio = () => {
   const owners = [...new Set(DB.portfolio.map(p => p.owner || "Family"))];
-  const pt = portfolioTotals(), gold = goldTotal();
+  const pt = portfolioTotals(), gold = goldTotal(), gg = goldGain();
+  const totalGrams = DB.gold.reduce((s, g) => s + num(g.grams), 0);
+
+  /* ---- aggregate by asset class (invested vs current), gold = its own class ---- */
+  const invByClass = {}, curByClass = {};
+  DB.portfolio.forEach(p => {
+    const k = p.subCategory || "Other";
+    invByClass[k] = (invByClass[k] || 0) + num(p.invested);
+    curByClass[k] = (curByClass[k] || 0) + num(p.currentValue);
+  });
+  if (gold > 0) curByClass["Physical Gold"] = (curByClass["Physical Gold"] || 0) + gold;
+  if (gg.inv > 0) invByClass["Physical Gold"] = (invByClass["Physical Gold"] || 0) + gg.inv;
+
+  const classes = [...new Set([...Object.keys(invByClass), ...Object.keys(curByClass)])];
+  const classColor = {};
+  classes.forEach((c, ix) => { classColor[c] = PALETTE[ix % PALETTE.length]; });
+  const investedItems = classes.map(c => ({ label: c, value: invByClass[c] || 0, color: classColor[c] }))
+    .filter(x => x.value > 0).sort((a, b) => b.value - a.value);
+  const currentItems = classes.map(c => ({ label: c, value: curByClass[c] || 0, color: classColor[c] }))
+    .filter(x => x.value > 0).sort((a, b) => b.value - a.value);
+  const classCompare = classes.map(c => ({ label: c, a: invByClass[c] || 0, b: curByClass[c] || 0 }))
+    .filter(x => x.a || x.b).sort((a, b) => b.b - a.b);
+
+  /* ---- gold split by person (share of value) ---- */
+  const goldByPerson = {};
+  DB.gold.forEach(g => { goldByPerson[g.person || "—"] = (goldByPerson[g.person || "—"] || 0) + num(g.grams) * num(g.perGramValue); });
+  const goldPersonItems = Object.entries(goldByPerson).filter(([, v]) => v > 0)
+    .map(([label, value], ix) => ({ label, value, color: PALETTE[(ix + 2) % PALETTE.length] }));
+
+  /* ---- combined performance ---- */
+  const totInv = pt.inv + gg.inv, totCur = pt.cur + gold, totGain = totCur - totInv;
+  const holdingGains = DB.portfolio.map(p => ({ label: p.category, value: num(p.currentValue) - num(p.invested) }))
+    .filter(x => x.value !== 0).sort((a, b) => b.value - a.value);
+
   return pageHead("Portfolio",
-    `Current <b>${fmtMoney(pt.cur + gold)}</b> (incl. gold) on invested ${fmtMoney(pt.inv)}`,
+    `Current <b>${fmtMoney(totCur)}</b> (incl. gold) on invested ${fmtMoney(totInv)}`,
     `<button class="btn" onclick="addHolding()">+ Add Holding</button>
      <button class="btn secondary" onclick="addGold()">+ Add Gold</button>`) +
+  `<div class="page-note">ⓘ&nbsp;<div>Holdings track <b>invested vs current value</b> per owner; <b>Maturity</b> shows the owner's age and the year an instrument unlocks (set a date of birth in Settings). Physical gold values use one current rate you can auto-fetch or set for all rows.</div></div>` +
+
+  /* ---- TOP: family asset allocation by class ---- */
+  `<div class="grid two-col">
+    <div class="panel"><h2>Asset Allocation — Invested</h2>${donutChart(investedItems)}</div>
+    <div class="panel"><h2>Asset Allocation — Current Value</h2>${donutChart(currentItems)}</div>
+  </div>
+  <div class="grid two-col">
+    <div class="panel"><h2>Physical Gold by Person</h2>${
+      goldPersonItems.length ? donutChart(goldPersonItems) : '<div class="empty">No gold entries yet</div>'}</div>
+    <div class="panel"><h2>Invested vs Current by Class</h2>${
+      compareBars(classCompare, "Invested", "Current value")}</div>
+  </div>` +
+
   owners.map(o => {
     const items = DB.portfolio.map((p, i) => [p, i]).filter(([p]) => (p.owner || "Family") === o);
     const cur = items.reduce((s, [p]) => s + num(p.currentValue), 0);
     const inv = items.reduce((s, [p]) => s + num(p.invested), 0);
+    const birthYear = personBirthYear(o);
     return `<div class="panel"><h2>${esc(o)}'s Holdings
       <span class="chip ${cur >= inv ? "green" : "red"}">${fmtMoney(cur)} · ${inv ? fmtPct((cur - inv) / inv) : "–"}</span></h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>Asset</th><th>Class</th><th class="num">Invested</th><th class="num">Current</th><th class="num">Return</th><th class="num">Maturity (mo)</th><th style="width:70px"></th></tr></thead>
+      <thead><tr><th>Asset</th><th>Class</th><th class="num">Invested</th><th class="num">Current</th><th class="num">Return</th>
+        <th class="num">Matures (age)${info("Owner's age when this holding matures/unlocks. Needs the owner's date of birth (set it in Settings).")}</th>
+        <th class="num">Matures (year)</th><th style="width:70px"></th></tr></thead>
       <tbody>${items.map(([p, i]) => {
         const roi = num(p.invested) ? (num(p.currentValue) - num(p.invested)) / num(p.invested) : 0;
+        const m = maturityInfo(p, birthYear, new Date().getFullYear());
         return `<tr><td><b>${esc(p.category)}</b>${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}</td>
           <td><span class="chip gray">${esc(p.subCategory || "—")}</span></td>
           <td class="num"><input class="inline-input" value="${num(p.invested)}" onchange="updHolding(${i},'invested',this.value)"></td>
           <td class="num"><input class="inline-input" value="${num(p.currentValue)}" onchange="updHolding(${i},'currentValue',this.value)"></td>
           <td class="num ${roi >= 0 ? "pos" : "neg"}">${fmtPct(roi)}</td>
-          <td class="num">${num(p.maturityMonths) || "—"}</td>
+          <td class="num">${m.age != null ? m.age + " yrs" : "—"}</td>
+          <td class="num">${m.year != null ? m.year : "—"}</td>
           <td><button class="icon-btn" onclick="editHolding(${i})">✎</button>
               <button class="icon-btn danger" onclick="delHolding(${i})">✕</button></td></tr>`;
       }).join("")}
       <tr class="subtotal"><td colspan="2">Subtotal</td><td class="num">${fmtMoney(inv)}</td><td class="num">${fmtMoney(cur)}</td>
-        <td class="num">${inv ? fmtPct((cur - inv) / inv) : "–"}</td><td></td><td></td></tr>
+        <td class="num">${inv ? fmtPct((cur - inv) / inv) : "–"}</td><td></td><td></td><td></td></tr>
       </tbody></table></div></div>`;
   }).join("") + `
-  <div class="panel"><h2>Physical Gold <span class="chip amber">${fmtMoney(gold)}</span></h2>
+  <div class="panel">
+    <h2>Physical Gold <span class="chip amber">${fmtMoney(gold)}</span>
+      ${gg.inv > 0 ? `<span class="chip ${gg.gain >= 0 ? "green" : "red"}" style="font-size:12px">gain ${fmtMoney(gg.gain)} (${fmtPct(gg.gain/gg.inv)})</span>` : ""}
+    </h2>
+    ${DB.gold.length ? `<div class="filter-bar" style="margin-bottom:14px;align-items:center">
+      <span class="small muted">Current rate — applies to all entries:</span>
+      <input id="goldRate" type="number" step="any" placeholder="₹ / gram" style="max-width:150px"
+        value="${(() => { const v = [...new Set(DB.gold.map(g => num(g.perGramValue)))]; return v.length === 1 && v[0] ? v[0] : ""; })()}">
+      <button class="btn small secondary" onclick="setGoldRateFromInput()">Apply to all</button>
+      <button class="btn small" id="goldFetchBtn" onclick="fetchGoldPrice()">⟳ Auto-fetch (24K)</button>
+    </div>` : ""}
     <div class="table-wrap"><table>
-      <thead><tr><th>Person</th><th class="num">Grams</th><th class="num">Per-gram Value</th><th class="num">Total</th><th style="width:70px"></th></tr></thead>
-      <tbody>${DB.gold.map((g, i) => `
-        <tr><td>${esc(g.person)}</td>
-        <td class="num"><input class="inline-input" value="${num(g.grams)}" onchange="updGold(${i},'grams',this.value)"></td>
-        <td class="num"><input class="inline-input" value="${num(g.perGramValue)}" onchange="updGold(${i},'perGramValue',this.value)"></td>
-        <td class="num">${fmtMoney(num(g.grams) * num(g.perGramValue))}</td>
-        <td><button class="icon-btn danger" onclick="delGold(${i})">✕</button></td></tr>`).join("")}
-      <tr class="subtotal"><td>Total</td><td class="num">${fmtNum(DB.gold.reduce((s, g) => s + num(g.grams), 0))} g</td><td></td>
-        <td class="num">${fmtMoney(gold)}</td><td></td></tr>
+      <thead><tr><th>Person</th><th class="num">Grams</th><th class="num">Buy Price/g</th><th class="num">Current/g</th><th class="num">Total Value</th><th class="num">Gain/Loss</th><th style="width:50px"></th></tr></thead>
+      <tbody>${DB.gold.map((g, i) => {
+        const cur = num(g.grams) * num(g.perGramValue);
+        const hasBuy = g.purchasePrice !== null && g.purchasePrice !== undefined && num(g.purchasePrice) > 0;
+        const inv = hasBuy ? num(g.grams) * num(g.purchasePrice) : 0;
+        const gain = hasBuy ? cur - inv : null;
+        return `<tr><td>${esc(g.person)}</td>
+          <td class="num"><input class="inline-input" value="${num(g.grams)}" onchange="updGold(${i},'grams',this.value)"></td>
+          <td class="num"><input class="inline-input" value="${g.purchasePrice !== null && g.purchasePrice !== undefined ? num(g.purchasePrice) : ""}"
+            placeholder="—" onchange="updGold(${i},'purchasePrice',this.value||null)"></td>
+          <td class="num"><input class="inline-input" value="${num(g.perGramValue)}" onchange="updGold(${i},'perGramValue',this.value)"></td>
+          <td class="num">${fmtMoney(cur)}</td>
+          <td class="num ${gain !== null ? (gain >= 0 ? "pos" : "neg") : ""}">${gain !== null ? fmtMoney(gain) : "—"}</td>
+          <td><button class="icon-btn danger" onclick="delGold(${i})">✕</button></td></tr>`;
+      }).join("")}
+      <tr class="subtotal"><td>Total</td><td class="num">${fmtNum(totalGrams)} g</td><td></td>
+        <td></td><td class="num">${fmtMoney(gold)}</td>
+        <td class="num ${gg.inv > 0 ? (gg.gain >= 0 ? "pos" : "neg") : ""}">${gg.inv > 0 ? fmtMoney(gg.gain) : "—"}</td><td></td></tr>
       </tbody></table></div>
-    <p class="muted small mt">Tip: update the per-gram value periodically; totals recompute automatically.</p></div>`;
+    <p class="muted small mt">Buy Price/g: price paid per gram when purchased — used to calculate investment gain.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Investment Performance</h2>
+    <div class="grid kpis" style="margin-bottom:18px">
+      <div class="kpi"><div class="label">Total Invested</div><div class="value">${fmtMoney(totInv)}</div>
+        <div class="delta muted">portfolio + priced gold</div></div>
+      <div class="kpi"><div class="label">Current Value</div><div class="value">${fmtMoney(totCur)}</div></div>
+      <div class="kpi"><div class="label">Total Gain</div><div class="value ${totGain >= 0 ? "pos" : "neg"}">${fmtMoney(totGain)}</div>
+        <div class="delta muted">${totInv ? fmtPct(totGain / totInv) + " overall return" : ""}</div></div>
+      <div class="kpi"><div class="label">Gold Gain</div><div class="value ${gg.gain >= 0 ? "pos" : "neg"}">${gg.inv ? fmtMoney(gg.gain) : "–"}</div>
+        <div class="delta muted">${gg.inv ? fmtPct(gg.gain / gg.inv) + " on priced gold" : "no buy price set"}</div></div>
+    </div>
+    <div class="grid two-col">
+      <div>
+        <h3 style="font-size:14px;margin-bottom:10px">Invested vs Current by Asset Class</h3>
+        ${compareBars(classCompare, "Invested", "Current value")}
+      </div>
+      <div>
+        <h3 style="font-size:14px;margin-bottom:10px">Gain / Loss by Holding</h3>
+        ${signedBars(holdingGains)}
+      </div>
+    </div>
+  </div>`;
 };
 function holdingFields(p) {
   p = p || {};
@@ -1279,21 +1588,25 @@ function holdingFields(p) {
     { type: "row", fields: [
       { name: "invested", label: "Amount invested", type: "number", step: "any", value: p.invested ?? "", required: true },
       { name: "currentValue", label: "Current value", type: "number", step: "any", value: p.currentValue ?? "", required: true }]},
-    { name: "maturityMonths", label: "Maturity / lock-in (months, 0 = none)", type: "number", value: p.maturityMonths ?? 0 },
+    { type: "row", fields: [
+      { name: "maturityAge", label: "Matures at owner's age (e.g. 60 for PPF/NPS; 0 = none)", type: "number", value: p.maturityAge ?? 0 },
+      { name: "maturityMonths", label: "…or lock-in from now (months)", type: "number", value: p.maturityMonths ?? 0 }]},
     { name: "notes", label: "Notes (optional)", value: p.notes || "" },
   ];
 }
 function addHolding() {
   formModal("Add holding", holdingFields(), v => {
     DB.portfolio.push({ id: uid(), category: v.category, subCategory: v.subCategory, owner: v.owner,
-      invested: num(v.invested), currentValue: num(v.currentValue), maturityMonths: num(v.maturityMonths), notes: v.notes });
+      invested: num(v.invested), currentValue: num(v.currentValue), maturityAge: num(v.maturityAge) || null,
+      maturityMonths: num(v.maturityMonths), notes: v.notes });
     closeModal(); save(); render();
-  });
+  }, { note: "Maturity age needs the owner's date of birth (Settings → Family Members). Use lock-in months for Family-owned or undated holdings." });
 }
 function editHolding(i) {
   formModal("Edit holding", holdingFields(DB.portfolio[i]), v => {
     Object.assign(DB.portfolio[i], { category: v.category, subCategory: v.subCategory, owner: v.owner,
-      invested: num(v.invested), currentValue: num(v.currentValue), maturityMonths: num(v.maturityMonths), notes: v.notes });
+      invested: num(v.invested), currentValue: num(v.currentValue), maturityAge: num(v.maturityAge) || null,
+      maturityMonths: num(v.maturityMonths), notes: v.notes });
     closeModal(); save(); render();
   });
 }
@@ -1312,8 +1625,41 @@ function addGold() {
     closeModal(); save(); render();
   });
 }
-function updGold(i, f, val) { DB.gold[i][f] = num(val); save(); render(); }
+function updGold(i, f, val) {
+  DB.gold[i][f] = (val === null || val === "null" || val === "") ? null : num(val);
+  save(); render();
+}
 function delGold(i) { confirmModal(`Remove ${DB.gold[i].person}'s gold entry?`, () => { DB.gold.splice(i, 1); save(); render(); }); }
+/* set the current per-gram value on EVERY gold row at once */
+function applyGoldRate(rate) {
+  if (!(rate > 0)) { toast("Enter a valid gold rate", true); return; }
+  DB.gold.forEach(g => { g.perGramValue = rate; });
+  save(); render();
+  toast(`Updated ${DB.gold.length} gold ${DB.gold.length === 1 ? "entry" : "entries"} to ${fmtMoney(rate)}/g`);
+}
+function setGoldRateFromInput() {
+  const r = validAmount((el("#goldRate") || {}).value);
+  if (!r.ok || !r.n) { toast("Enter a valid gold rate per gram", true); return; }
+  applyGoldRate(r.n);
+}
+async function fetchGoldPrice() {
+  const btn = el("#goldFetchBtn");
+  if (btn) { btn.textContent = "…"; btn.disabled = true; }
+  try {
+    const status = await fetch("/api/gemini-status").then(r => r.json());
+    if (!status.available) { toast("Gemini API key not set — enter the rate manually instead", true); return; }
+    const res = await fetch("/api/fetch-gold-price", { method: "POST" });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || "fetch failed");
+    if (j.price === null || j.price === undefined) { toast("Could not determine today's gold rate — enter it manually", true); return; }
+    applyGoldRate(j.price);   // applies to all rows + toasts + saves
+    toast(`Gold rate ${fmtMoney(j.price)}/g via ${j.model} — applied to all`);
+  } catch (e) {
+    toast("Gold price fetch failed: " + e.message + " — enter manually", true);
+  } finally {
+    if (btn) { btn.textContent = "⟳ Auto-fetch (24K)"; btn.disabled = false; }
+  }
+}
 
 /* ================= LOANS ================= */
 PAGES.loans = () => {
@@ -1327,6 +1673,7 @@ PAGES.loans = () => {
     `<button class="btn" onclick="addLoanFull()">+ New Loan</button>
      <button class="btn secondary" onclick="addLoanMidway()">+ Add Existing Loan (midway)</button>
      <button class="btn ghost" onclick="emiCalculator()">EMI Calculator</button>`) +
+  `<div class="page-note">ⓘ&nbsp;<div>EMIs paid, outstanding balance and months left are computed automatically from each loan's start date. Use <b>Prepay</b> to record a lump-sum payment (shorten tenure or reduce EMI) — all numbers update. <b>Amortization</b> shows the full schedule with a what-if.</div></div>` +
   `<div class="panel">` +
   (act.length ? act.map(([L, i]) => loanCardHTML(L, i)).join("") : '<div class="empty">No active loans 🎉</div>') +
   `</div>` +
@@ -1344,6 +1691,7 @@ function loanCardHTML(L, i) {
     </div>
     <div>
       <button class="btn small secondary" onclick="showAmort(${i})">Amortization</button>
+      ${L.status !== "closed" ? `<button class="btn small secondary" onclick="recordPrepayment(${i})">Prepay</button>` : ""}
       <button class="btn small ghost" onclick="editLoan(${i})">Edit</button>
       ${L.status !== "closed"
         ? `<button class="btn small ghost" onclick="closeLoan(${i})">Mark Closed</button>`
@@ -1361,10 +1709,36 @@ function loanCardHTML(L, i) {
     </div>
     <div class="progress"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>
     <div class="small muted mt" style="margin-top:6px">${fmtPct(pct)} of principal repaid · interest paid so far ${fmtMoney(st.paidInterest)}</div>
+    ${(L.prepayments || []).length ? `<div class="small muted mt" style="margin-top:4px">
+      Prepayments: ${(L.prepayments || []).map(p => `${fmtMoney(num(p.amount))} @ month ${p.month} (${p.adjustMode === "emi" ? "EMI adjusted" : "tenure shortened"})`).join(", ")}
+    </div>` : ""}
     <div class="mt" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       ${docs.map(d => `<a class="chip" href="${d.type === "file" ? "/files/" + encodeURIComponent(d.ref) : esc(d.ref)}" target="_blank" title="${esc(d.title)}">📎 ${esc(d.title)}</a>`).join("")}
       <button class="btn small ghost" onclick="attachDocToLoan('${L.id}')">+ Attach file / link</button>
     </div></div>`;
+}
+function recordPrepayment(i) {
+  const L = DB.loans[i];
+  const st = loanState(L);
+  const curMonth = st.paidMonths;
+  formModal(`Record Prepayment — ${esc(L.name)}`, [
+    { name: "amount", label: "Prepayment amount (lump sum)", type: "number", step: "any", required: true,
+      placeholder: "e.g. 100000" },
+    { name: "month", label: `At end of which EMI month (current: ~${curMonth})`,
+      type: "number", value: curMonth + 1, min: 1 },
+    { name: "adjustMode", label: "After prepayment, adjust…", type: "select",
+      value: "tenure",
+      options: [["tenure", "Shorten tenure (keep same EMI)"], ["emi", "Reduce EMI (keep same remaining months)"]] },
+  ], v => {
+    const amt = num(v.amount);
+    if (!amt) return toast("Enter a valid amount", true);
+    if (!L.prepayments) L.prepayments = [];
+    L.prepayments.push({ id: uid(), month: num(v.month), amount: amt, adjustMode: v.adjustMode });
+    L.prepayments.sort((a, b) => a.month - b.month);
+    closeModal(); save(); render();
+    const newSt = loanState(L);
+    toast(`Prepayment recorded. New payoff in ${newSt.remMonths} months, interest saved ~${fmtMoney(st.totalInterest - newSt.totalInterest)}`);
+  }, { note: "Prepayment is applied at the end of the specified EMI month. All schedules and balances update automatically." });
 }
 function addLoanFull() {
   formModal("New loan (from the beginning)", [
@@ -1508,16 +1882,20 @@ PAGES.goals = () => {
     const emi = num(g.emi) || (num(g.loanAmount) && num(g.tenureMonths) ? calcEMI(num(g.loanAmount), num(g.interest), num(g.tenureMonths)) : 0);
     return `<tr>
       <td><b>${esc(g.name)}</b><div class="small muted">${esc(g.type || "")}</div></td>
-      <td class="num">${fmtMoney(num(g.value))}</td>
+      <td class="num">
+        ${g.currentMarketValue ? `<b>${fmtMoney(num(g.currentMarketValue))}</b><div class="small muted">market · goal: ${fmtMoney(num(g.value))}</div>` : fmtMoney(num(g.value))}
+      </td>
       <td class="num">${num(g.downPayment) ? fmtMoney(num(g.downPayment)) : "—"}</td>
       <td class="num">${num(g.loanAmount) ? fmtMoney(num(g.loanAmount)) + `<div class="small muted">${fmtPct(num(g.interest))} · ${num(g.tenureMonths)}mo</div>` : "—"}</td>
       <td class="num">${emi ? fmtMoney(emi) : "—"}</td>
-      <td>${fmtDate(g.estimatedDate)}</td>
+      <td>${fmtDate(g.estimatedDate)}
+        ${g.lastPriceFetch ? `<div class="small muted">price as of ${fmtDate(g.lastPriceFetch)}</div>` : ""}</td>
       <td><span class="chip ${g.fulfilled ? "green" : "amber"}">${g.fulfilled ? "Fulfilled" : "Planned"}</span></td>
       <td style="white-space:nowrap">
         <button class="icon-btn" title="Toggle fulfilled" onclick="toggleGoal(${i})">${g.fulfilled ? "↩" : "✓"}</button>
         ${!g.fulfilled && num(g.loanAmount) ? `<button class="icon-btn" title="Convert to loan" onclick="goalToLoan(${i})">⇒</button>` : ""}
         <button class="icon-btn" title="Edit" onclick="editGoal(${i})">✎</button>
+        <button class="icon-btn" title="Refresh market price via AI" id="gpBtn${i}" onclick="refreshGoalPrice(${i})">⟳</button>
         <button class="icon-btn danger" onclick="delGoal(${i})">✕</button></td></tr>`;
   };
   const tbl = items => `<div class="table-wrap"><table>
@@ -1525,6 +1903,7 @@ PAGES.goals = () => {
     <tbody>${items.map(row).join("")}</tbody></table></div>`;
   return pageHead("Goals & Future Purchases", `Planned spending ahead: <b>${fmtMoney(totOpen)}</b>`,
     `<button class="btn" onclick="addGoal()">+ Add Goal</button>`) +
+    `<div class="page-note">ⓘ&nbsp;<div>Plan future purchases with down-payment / loan / EMI. The <b>⟳</b> button fetches today's market price via AI (when a Gemini key is set); otherwise the value you entered is kept. <b>⇒</b> turns a goal into a live loan.</div></div>` +
     `<div class="panel"><h2>Planned</h2>${open.length ? tbl(open) : '<div class="empty">Nothing planned.</div>'}</div>` +
     (done.length ? `<div class="panel"><h2>Fulfilled</h2>${tbl(done)}</div>` : "");
 };
@@ -1561,6 +1940,33 @@ function editGoal(i) {
 }
 function toggleGoal(i) { DB.goals[i].fulfilled = !DB.goals[i].fulfilled; save(); render(); }
 function delGoal(i) { confirmModal(`Delete goal "${DB.goals[i].name}"?`, () => { DB.goals.splice(i, 1); save(); render(); }); }
+async function refreshGoalPrice(i) {
+  const g = DB.goals[i];
+  const btn = el("#gpBtn" + i);
+  if (btn) { btn.textContent = "…"; btn.disabled = true; }
+  try {
+    const r = await fetch("/api/gemini-status").then(x => x.json());
+    if (!r.available) { toast("Gemini API key not set — cannot fetch price", true); return; }
+    const res = await fetch("/api/fetch-goal-price", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: g.name, type: g.type || "" })
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || "fetch failed");
+    if (j.price === null || j.price === undefined) {
+      toast(`Could not determine market price for "${g.name}" — using existing value`, true);
+      return;
+    }
+    g.currentMarketValue = j.price;
+    g.lastPriceFetch = new Date().toISOString().slice(0, 10);
+    save(); render();
+    toast(`Price updated to ${fmtMoney(j.price)} via ${j.model}`);
+  } catch (e) {
+    toast("Price fetch failed: " + e.message + " — using last value", true);
+  } finally {
+    if (btn) { btn.textContent = "⟳"; btn.disabled = false; }
+  }
+}
 function goalToLoan(i) {
   const g = DB.goals[i];
   DB.loans.push({ id: uid(), name: g.name, principal: num(g.loanAmount), annualRate: num(g.interest),
@@ -1605,6 +2011,7 @@ PAGES.cards = () => {
   const feesTotal = DB.cards.filter(c => c.status !== "closed").reduce((s, c) => s + num(c.fees), 0);
   return pageHead("Cards", `${activeN} active card(s) · annual fees ${fmtMoney(feesTotal)} · details stay in your local data file`,
     `<button class="btn" onclick="addCard()">+ Add Card</button>`) + `
+  <div class="page-note">ⓘ&nbsp;<div>Card numbers, CVV and PIN are <b>masked by default</b> — click <b>👁</b> on a card to reveal. Everything stays in your local data file; nothing is sent anywhere. Filter by bank, owner, type or status below.</div></div>
   <div class="filter-bar">
     <select onchange="cardFilter.bank=this.value;render()">
       <option value="">All banks</option>${banks.map(b => `<option value="${esc(b)}"${cardFilter.bank === b ? " selected" : ""}>${esc(b)}</option>`).join("")}
@@ -1801,11 +2208,19 @@ PAGES.settings = () => {
       </div>
       <p class="muted small">Examples: INR / en-IN, USD / en-US, EUR / de-DE. Formatting updates everywhere instantly.</p>
     </div>
-    <div class="panel"><h2>Family Members</h2>
-      <div class="mb">${DB.settings.persons.map((p, i) =>
-        `<span class="chip" style="margin:0 6px 6px 0">${esc(p)} <a style="cursor:pointer" onclick="delPerson(${i})">✕</a></span>`).join("") || '<span class="muted">None yet</span>'}</div>
+    <div class="panel"><h2>Family Members ${info("Date of birth powers age-based maturity (e.g. PPF/NPS maturing at 60). Optional.")}</h2>
+      ${DB.settings.persons.length ? `<div class="table-wrap mb"><table>
+        <thead><tr><th>Name</th><th>Date of birth</th><th class="num">Age</th><th style="width:40px"></th></tr></thead>
+        <tbody>${DB.settings.persons.map((p, i) => {
+          const dob = personDob(p), by = personBirthYear(p);
+          const age = by ? new Date().getFullYear() - by : null;
+          return `<tr><td><b>${esc(p)}</b></td>
+            <td>${dobPickerHTML(i)}</td>
+            <td class="num muted">${age != null ? age + " yrs" : "—"}</td>
+            <td><button class="icon-btn danger" onclick="delPerson(${i})">✕</button></td></tr>`;
+        }).join("")}</tbody></table></div>` : '<div class="mb"><span class="muted">None yet</span></div>'}
       <button class="btn secondary small" onclick="addPerson()">+ Add person</button>
-      <p class="muted small mt">People appear as owners for portfolio, cards and investments.</p>
+      <p class="muted small mt">People appear as owners for portfolio, cards and investments. Add a date of birth to enable age-based maturities.</p>
     </div>
     <div class="panel"><h2>Backup & Restore <button class="btn small" onclick="backupNow()">🗄 Backup now</button></h2>
       <p class="muted small mb">All data lives in <b>data/finances.json</b> (plus uploaded files in data/files/).
@@ -1870,9 +2285,19 @@ function addPerson() {
   formModal("Add family member", [{ name: "name", label: "Name", required: true }], v => {
     if (!DB.settings.persons.includes(v.name)) DB.settings.persons.push(v.name);
     closeModal(); save(); render();
-  });
+  }, { note: "Set their date of birth from the Day / Month / Year dropdowns in the members table." });
 }
-function delPerson(i) { DB.settings.persons.splice(i, 1); save(); render(); }
+function updPersonDob(name, dob) {
+  DB.settings.personMeta = DB.settings.personMeta || {};
+  DB.settings.personMeta[name] = Object.assign(DB.settings.personMeta[name] || {}, { dob: dob || undefined });
+  save(); render();
+}
+function delPerson(i) {
+  const name = DB.settings.persons[i];
+  DB.settings.persons.splice(i, 1);
+  if (DB.settings.personMeta) delete DB.settings.personMeta[name];
+  save(); render();
+}
 function exportData() {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(DB, null, 2)], { type: "application/json" }));
