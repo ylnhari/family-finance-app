@@ -5,7 +5,6 @@ let DB = null;            // the whole data document
 let currentPage = "dashboard";
 let saveTimer = null;
 let incomeYear = null;          // null = auto-select latest year per earner
-let incomeInputMode = "monthly"; // "monthly" | "yearly" for component entry
 
 /* ================= persistence ================= */
 async function loadDB() {
@@ -548,20 +547,37 @@ PAGES.income = () => {
   const allYears = [...new Set(persons.flatMap(p => (p.salaryYears || []).map(y => y.year)))].sort((a, b) => b - a);
   const dl = k => predList(k).map(o => `<option value="${esc(o)}">`).join("");
   const hasMultiYear = persons.some(p => (p.salaryYears || []).length >= 2);
-  const modeBtn = `<button class="btn small ghost" onclick="incomeInputMode=incomeInputMode==='monthly'?'yearly':'monthly';render()">
-      ⇄ ${incomeInputMode === "monthly" ? "Switch to Yearly entry" : "Switch to Monthly entry"}</button>
-    <span class="muted small">${incomeInputMode === "yearly" ? "Entering yearly values (stored as monthly)" : "Entering monthly values"}</span>`;
   const yearSel = allYears.length > 1 ? `<select onchange="incomeYear=this.value==='null'?null:+this.value;render()">
       <option value="null"${incomeYear === null ? " selected" : ""}>Latest year</option>
       ${allYears.map(y => `<option value="${y}"${incomeYear === y ? " selected" : ""}>${y}</option>`).join("")}
     </select>` : "";
-  const controlBar = persons.length ? `<div class="filter-bar" style="margin-bottom:16px">${yearSel}${modeBtn}</div>` : "";
+  const controlBar = persons.length ? `<div class="filter-bar" style="margin-bottom:16px">${yearSel}</div>` : "";
+
+  /* family-level totals */
+  const familySummary = persons.length > 0 ? (() => {
+    const tots = persons.map(p => incomeTotalsForYear(p, selectedYearEntry(p) || latestYearEntry(p)));
+    const fMonthlyInHand = tots.reduce((s, t) => s + t.inHand, 0);
+    const fMonthlyCtc    = tots.reduce((s, t) => s + t.monthlyCtc, 0);
+    const fYearlyCtc     = tots.reduce((s, t) => s + t.yearlyCtc + t.oneTimeBonus, 0);
+    const fBonus         = tots.reduce((s, t) => s + t.totalBonus, 0);
+    return `<div class="panel earner-head" style="margin-bottom:18px">
+      <h2 style="color:#fff;margin-bottom:12px">Family Total</h2>
+      <div class="grid kpis" style="margin-bottom:0">
+        <div class="kpi"><div class="label">Monthly In-Hand</div><div class="value">${fmtMoney(fMonthlyInHand)}</div>
+          <div class="delta muted">${persons.map(p => esc(p.name)).join(" + ")}</div></div>
+        <div class="kpi"><div class="label">Monthly CTC</div><div class="value">${fmtMoney(fMonthlyCtc)}</div></div>
+        <div class="kpi"><div class="label">Yearly CTC (incl. bonus)</div><div class="value">${fmtMoney(fYearlyCtc)}</div></div>
+        <div class="kpi"><div class="label">Annual Bonus</div><div class="value">${fmtMoney(fBonus)}</div>
+          <div class="delta muted">variable + one-time across all earners</div></div>
+      </div></div>`;
+  })() : "";
+
   return pageHead("Income",
     "CTC = Gross + CTC-only · In-Hand = Gross − Deductions · Variable and bonus shown in yearly totals",
     `<button class="btn" onclick="addEarner()">+ Add Earner</button>`) +
     `<datalist id="dlIncomeComp">${dl("incomeComponents")}</datalist>
      <datalist id="dlDedComp">${dl("deductionComponents")}</datalist>` +
-    controlBar +
+    controlBar + familySummary +
     (persons.length ? persons.map((p, pi) => incomeEarnerHTML(p, pi)).join("")
       : '<div class="panel"><div class="empty">No earners yet — add one to start.</div></div>') +
     (hasMultiYear ? salaryGrowthChart(persons) : "");
@@ -571,20 +587,19 @@ function incomeEarnerHTML(p, pi) {
   const yr = selectedYearEntry(p);
   const yi = yr ? (p.salaryYears || []).indexOf(yr) : -1;
   const allPersonYears = (p.salaryYears || []).map(y => y.year).sort((a, b) => b - a);
-  const isYearly = incomeInputMode === "yearly";
 
-  const yearPills = allPersonYears.length > 1 ? `
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+  const yearPills = `
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       ${allPersonYears.map(y => {
         const isActive = incomeYear === y || (incomeYear === null && y === allPersonYears[0]);
         return `<button class="chip${isActive ? " green" : ""}" onclick="incomeYear=${y};render()" style="cursor:pointer;border:0">${y}</button>`;
       }).join("")}
-    </div>` : `<div style="opacity:.75;font-size:13px;margin-top:4px">Year: ${yr ? yr.year : "—"}</div>`;
+      <button class="btn small secondary" onclick="addSalaryYear(${pi})">+ Year</button>
+    </div>`;
 
   const header = `<div class="panel earner-head">
     <h2 style="color:#fff">${esc(p.name)}
       <span>
-        <button class="btn small secondary" onclick="addSalaryYear(${pi})">+ Year</button>
         <button class="btn small secondary" onclick="renameEarner(${pi})">Rename</button>
         <button class="btn small danger" onclick="delEarner(${pi})">Delete</button>
       </span>
@@ -597,8 +612,6 @@ function incomeEarnerHTML(p, pi) {
   }
 
   const t = incomeTotalsForYear(p, yr);
-  const dispAmt = a => isYearly ? num(a) * 12 : num(a);
-  const hint = a => `<div class="small muted" style="font-size:10.5px;text-align:right;margin-top:1px">${isYearly ? fmtMoney(num(a)) + "/mo" : fmtMoney(num(a) * 12) + "/yr"}</div>`;
 
   const compRows = (yr.components || []).map((c, ci) => `
     <tr>
@@ -607,11 +620,9 @@ function incomeEarnerHTML(p, pi) {
       <td><select class="inline-select" onchange="updComp(${pi},${yi},${ci},'scope',this.value)">
         <option value="gross"${c.scope !== "ctc" ? " selected" : ""}>Gross</option>
         <option value="ctc"${c.scope === "ctc" ? " selected" : ""}>CTC only</option></select></td>
-      <td class="num">
-        <input class="inline-input" value="${dispAmt(c.amount)}"
-          onchange="updComp(${pi},${yi},${ci},'amount',this.value)">
-        ${hint(c.amount)}
-      </td>
+      <td class="num"><input class="inline-input" value="${num(c.amount)}"
+        onchange="updComp(${pi},${yi},${ci},'amount',this.value)"></td>
+      <td class="num muted">${fmtMoney(num(c.amount) * 12)}</td>
       <td style="width:30px"><button class="icon-btn danger" onclick="delComp(${pi},${yi},${ci})">✕</button></td>
     </tr>`).join("");
 
@@ -619,11 +630,9 @@ function incomeEarnerHTML(p, pi) {
     <tr>
       <td><input class="inline-input wide" list="dlDedComp" value="${esc(c.component)}"
         onchange="updDed(${pi},${yi},${ci},'component',this.value)"></td>
-      <td class="num">
-        <input class="inline-input" value="${dispAmt(c.amount)}"
-          onchange="updDed(${pi},${yi},${ci},'amount',this.value)">
-        ${hint(c.amount)}
-      </td>
+      <td class="num"><input class="inline-input" value="${num(c.amount)}"
+        onchange="updDed(${pi},${yi},${ci},'amount',this.value)"></td>
+      <td class="num muted">${fmtMoney(num(c.amount) * 12)}</td>
       <td style="width:30px"><button class="icon-btn danger" onclick="delDed(${pi},${yi},${ci})">✕</button></td>
     </tr>`).join("");
 
@@ -633,6 +642,28 @@ function incomeEarnerHTML(p, pi) {
   const varBadge = t.earnedPct !== null && t.eligiblePct > 0 && t.earnedPct < t.eligiblePct
     ? ` <span class="chip amber">below target</span>` : t.earnedPct !== null && t.earnedPct > t.eligiblePct
     ? ` <span class="chip green">above target</span>` : "";
+
+  const totalCtcWithBonus = t.yearlyCtc + t.oneTimeBonus;
+
+  const summaryTable = `
+    <div style="margin-top:20px">
+      <h3 style="margin:0 0 10px;font-size:14px">Summary</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Item</th><th class="num">Monthly</th><th class="num">Yearly</th></tr></thead>
+        <tbody>
+          <tr><td>Gross</td><td class="num">${fmtMoney(t.gross)}</td><td class="num">${fmtMoney(t.gross * 12)}</td></tr>
+          <tr><td>CTC base</td><td class="num">${fmtMoney(t.monthlyCtc)}</td><td class="num">${fmtMoney(t.yearlyCtcBase)}</td></tr>
+          <tr><td class="muted" style="padding-left:12px">↳ Variable pay</td><td class="num muted">—</td><td class="num">${fmtMoney(t.variablePay)}</td></tr>
+          <tr><td class="muted" style="padding-left:12px">↳ One-time bonus</td><td class="num muted">—</td><td class="num">${fmtMoney(t.oneTimeBonus)}</td></tr>
+          <tr class="subtotal"><td>Total CTC</td><td class="num">${fmtMoney(t.monthlyCtc)}</td><td class="num">${fmtMoney(t.yearlyCtc)}</td></tr>
+          <tr class="subtotal"><td>Total CTC + bonus</td><td class="num muted">—</td><td class="num">${fmtMoney(totalCtcWithBonus)}</td></tr>
+          <tr><td style="border-top:1px solid var(--line)">Deductions</td><td class="num neg" style="border-top:1px solid var(--line)">${fmtMoney(t.ded)}</td><td class="num neg" style="border-top:1px solid var(--line)">${fmtMoney(t.ded * 12)}</td></tr>
+          <tr class="subtotal"><td>In-Hand</td>
+            <td class="num ${t.inHand >= 0 ? "pos" : "neg"}">${fmtMoney(t.inHand)}</td>
+            <td class="num ${t.inHand >= 0 ? "pos" : "neg"}">${fmtMoney(t.inHand * 12)}</td></tr>
+        </tbody>
+      </table></div>
+    </div>`;
 
   return header + `
     <div class="grid kpis" style="margin-bottom:0;margin-top:12px">
@@ -648,15 +679,13 @@ function incomeEarnerHTML(p, pi) {
   </div>
   <div class="grid two-col">
     <div class="panel">
-      <h2>Salary Components <button class="btn small secondary" onclick="addComp(${pi},${yi})">+ Row</button></h2>
+      <h2>Salary Components
+        <button class="btn small secondary" onclick="addComp(${pi},${yi})">+ Row</button>
+        <button class="btn small secondary" onclick="importPayslip(${pi},${yi})" style="margin-left:6px">↑ Import</button>
+      </h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Component</th><th>Scope</th><th class="num">${isYearly ? "Yearly" : "Monthly"}</th><th></th></tr></thead>
-        <tbody>${compRows}
-          <tr class="subtotal"><td>Gross subtotal</td><td></td>
-            <td class="num">${fmtMoney(isYearly ? t.gross * 12 : t.gross)}</td><td></td></tr>
-          <tr class="subtotal"><td>Monthly CTC</td><td></td>
-            <td class="num">${fmtMoney(isYearly ? t.monthlyCtc * 12 : t.monthlyCtc)}</td><td></td></tr>
-        </tbody>
+        <thead><tr><th>Component</th><th>Scope</th><th class="num">Monthly</th><th class="num">Annual</th><th></th></tr></thead>
+        <tbody>${compRows}</tbody>
       </table></div>
       <p class="muted small mt">"CTC only" = employer-side money not in gross (e.g. Employer PF).</p>
 
@@ -685,15 +714,11 @@ function incomeEarnerHTML(p, pi) {
     <div class="panel">
       <h2>Deductions <button class="btn small secondary" onclick="addDed(${pi},${yi})">+ Row</button></h2>
       <div class="table-wrap"><table>
-        <thead><tr><th>Deduction</th><th class="num">${isYearly ? "Yearly" : "Monthly"}</th><th></th></tr></thead>
-        <tbody>${dedRows}
-          <tr class="subtotal"><td>Total deductions</td>
-            <td class="num">${fmtMoney(isYearly ? t.ded * 12 : t.ded)}</td><td></td></tr>
-          <tr class="subtotal"><td>In-Hand (gross − deductions)</td>
-            <td class="num ${t.inHand >= 0 ? "pos" : "neg"}">${fmtMoney(isYearly ? t.inHand * 12 : t.inHand)}</td><td></td></tr>
-        </tbody>
+        <thead><tr><th>Deduction</th><th class="num">Monthly</th><th class="num">Annual</th><th></th></tr></thead>
+        <tbody>${dedRows}</tbody>
       </table></div>
       ${t.inHand < 0 ? '<p class="small neg mt">⚠ Deductions exceed gross — check amounts.</p>' : ""}
+      ${summaryTable}
     </div>
   </div>`;
 }
@@ -732,7 +757,7 @@ function updComp(pi, yi, ci, field, val) {
   if (field === "amount") {
     const r = validAmount(val);
     if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
-    c.amount = incomeInputMode === "yearly" ? r.n / 12 : r.n;
+    c.amount = r.n;
   } else if (field === "component") {
     if (!val.trim()) { toast("Component name can't be empty", true); render(); return; }
     c.component = val.trim(); addPred("incomeComponents", c.component);
@@ -744,7 +769,7 @@ function updDed(pi, yi, ci, field, val) {
   if (field === "amount") {
     const r = validAmount(val);
     if (!r.ok) { toast("Enter a valid non-negative number", true); render(); return; }
-    c.amount = incomeInputMode === "yearly" ? r.n / 12 : r.n;
+    c.amount = r.n;
   } else {
     if (!val.trim()) { toast("Deduction name can't be empty", true); render(); return; }
     c.component = val.trim(); addPred("deductionComponents", c.component);
@@ -768,6 +793,169 @@ function updOneTimeBonus(pi, yi, val) {
   DB.income.persons[pi].salaryYears[yi].oneTimeBonus = r.n;
   save(); render();
 }
+async function importPayslip(pi, yi) {
+  let status;
+  try {
+    status = await fetch("/api/gemini-status").then(r => r.json());
+  } catch {
+    toast("Could not reach server", true); return;
+  }
+  if (!status.available) {
+    toast("Gemini API key not set. Add GEMINI_API_KEY to your environment and restart the server.", true);
+    return;
+  }
+
+  const ov = openModal(`
+    <h3>Import from Payslip / Offer Letter</h3>
+    <p class="muted small" style="margin:8px 0 16px">PDF, PNG, JPG accepted &middot; file sent to Google Gemini for AI extraction</p>
+    <div class="drop-zone" id="psipDrop" style="cursor:pointer;padding:32px 20px;text-align:center;border:2px dashed var(--line);border-radius:var(--radius)">
+      Click or drop file here<br><span class="small muted">PDF, PNG, JPG, WEBP &mdash; up to 20 MB</span>
+    </div>
+    <input type="file" id="psipFile" accept=".pdf,.png,.jpg,.jpeg,.webp" style="display:none">
+    <div id="psipStatus" style="display:none;margin-top:14px" class="muted small"></div>
+    <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Cancel</button></div>`);
+
+  const dz = el("#psipDrop", ov);
+  const fi = el("#psipFile", ov);
+  dz.onclick = () => fi.click();
+  dz.ondragover = e => { e.preventDefault(); dz.style.background = "var(--bg)"; };
+  dz.ondragleave = () => { dz.style.background = ""; };
+  dz.ondrop = e => { e.preventDefault(); dz.style.background = ""; doExtract(e.dataTransfer.files[0]); };
+  fi.onchange = () => doExtract(fi.files[0]);
+
+  async function setStatus(msg, isErr) {
+    const s = el("#psipStatus", ov);
+    s.style.display = "";
+    s.textContent = msg;
+    s.className = isErr ? "neg small" : "muted small";
+  }
+
+  async function doExtract(file) {
+    if (!file) return;
+    dz.style.display = "none";
+    setStatus("Uploading…");
+    try {
+      const upR = await fetch("/api/upload?name=" + encodeURIComponent(file.name),
+        { method: "POST", body: file });
+      const upJ = await upR.json();
+      if (!upR.ok) throw new Error(upJ.error || "Upload failed");
+
+      setStatus("Extracting with Gemini " + (status.preferred || "flash") + "…");
+      const exR = await fetch("/api/extract-payslip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: upJ.name }),
+      });
+      const exJ = await exR.json();
+      if (!exR.ok) throw new Error(exJ.error || "Extraction failed");
+
+      closeModal();
+      showExtractionPreview(pi, yi, exJ.extracted, exJ.model);
+    } catch (e) {
+      setStatus("Failed: " + e.message + " — enter details manually.", true);
+      dz.style.display = "";
+    }
+  }
+}
+
+function showExtractionPreview(pi, yi, data, modelUsed) {
+  const p = DB.income.persons[pi];
+  const comps  = (data.components  || []).map((c, i) => ({ ...c, _i: i }));
+  const deds   = (data.deductions   || []).map((c, i) => ({ ...c, _i: i }));
+  const varPct = data.variablePctEligible != null ? data.variablePctEligible : "";
+  const bonus  = data.oneTimeBonus != null ? data.oneTimeBonus : "";
+  const yr     = data.year || new Date().getFullYear();
+
+  const compRows = comps.map((c, i) => `
+    <tr>
+      <td><input class="inline-input wide" id="ec_name_${i}" value="${esc(c.component)}"></td>
+      <td><select class="inline-select" id="ec_scope_${i}">
+        <option value="gross"${c.scope !== "ctc" ? " selected" : ""}>Gross</option>
+        <option value="ctc"${c.scope === "ctc" ? " selected" : ""}>CTC only</option></select></td>
+      <td class="num"><input class="inline-input" id="ec_amt_${i}" value="${num(c.amount)}"></td>
+    </tr>`).join("");
+
+  const dedRows = deds.map((c, i) => `
+    <tr>
+      <td><input class="inline-input wide" id="ed_name_${i}" value="${esc(c.component)}"></td>
+      <td class="num"><input class="inline-input" id="ed_amt_${i}" value="${num(c.amount)}"></td>
+    </tr>`).join("");
+
+  openModal(`
+    <h3>Review Extracted Data — ${esc(p.name)}</h3>
+    <p class="muted small" style="margin:4px 0 16px">Extracted via ${esc(modelUsed || "Gemini")} &middot; Review and edit before applying &middot; All amounts monthly</p>
+    ${comps.length ? `
+      <h4 style="margin:0 0 8px;font-size:13px">Salary Components</h4>
+      <div class="table-wrap" style="margin-bottom:16px"><table>
+        <thead><tr><th>Component</th><th>Scope</th><th class="num">Monthly (₹)</th></tr></thead>
+        <tbody>${compRows}</tbody>
+      </table></div>` : '<p class="muted small">No salary components extracted.</p>'}
+    ${deds.length ? `
+      <h4 style="margin:0 0 8px;font-size:13px">Deductions</h4>
+      <div class="table-wrap" style="margin-bottom:16px"><table>
+        <thead><tr><th>Deduction</th><th class="num">Monthly (₹)</th></tr></thead>
+        <tbody>${dedRows}</tbody>
+      </table></div>` : ""}
+    <div class="fld-row" style="gap:12px;margin-bottom:16px">
+      <label class="fld"><span>Variable eligible (% of CTC)</span>
+        <input type="number" step="any" min="0" max="100" id="ep_varPct" value="${varPct}" placeholder="0" style="width:100%"></label>
+      <label class="fld"><span>One-time bonus (annual ₹)</span>
+        <input type="number" step="any" min="0" id="ep_bonus" value="${bonus}" placeholder="0" style="width:100%"></label>
+      <label class="fld"><span>Salary year</span>
+        <input type="number" min="2000" max="2100" id="ep_year" value="${yr}" style="width:100%"></label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="applyExtraction(${pi})">Apply to ${esc(p.name)}</button>
+    </div>
+    <p class="muted small" style="margin-top:10px">Applying will replace the existing components &amp; deductions for the selected year.</p>`,
+    { comps, deds, compLen: comps.length, dedLen: deds.length });
+}
+
+function applyExtraction(pi) {
+  const year = parseInt(el("#ep_year").value, 10);
+  if (!year) { toast("Invalid year", true); return; }
+
+  const components = [];
+  let i = 0;
+  while (el("#ec_name_" + i)) {
+    const name = (el("#ec_name_" + i).value || "").trim();
+    const amt  = parseFloat(el("#ec_amt_"  + i).value) || 0;
+    const scp  = el("#ec_scope_" + i).value;
+    if (name) components.push({ component: name, amount: amt, scope: scp });
+    i++;
+  }
+
+  const deductions = [];
+  let j = 0;
+  while (el("#ed_name_" + j)) {
+    const name = (el("#ed_name_" + j).value || "").trim();
+    const amt  = parseFloat(el("#ed_amt_"  + j).value) || 0;
+    if (name) deductions.push({ component: name, amount: amt });
+    j++;
+  }
+
+  const varPct  = el("#ep_varPct").value.trim();
+  const bonus   = el("#ep_bonus").value.trim();
+  const p       = DB.income.persons[pi];
+  let yr        = (p.salaryYears || []).find(y => y.year === year);
+
+  if (!yr) {
+    yr = { year, components: [], deductions: [], variablePctEligible: 0, variablePctEarned: null, oneTimeBonus: 0 };
+    (p.salaryYears = p.salaryYears || []).push(yr);
+    p.salaryYears.sort((a, b) => b.year - a.year);
+  }
+
+  yr.components = components;
+  yr.deductions = deductions;
+  if (varPct !== "") yr.variablePctEligible = parseFloat(varPct) || 0;
+  if (bonus  !== "") yr.oneTimeBonus        = parseFloat(bonus)  || 0;
+
+  incomeYear = year;
+  closeModal(); save(); render();
+  toast("Applied extracted data for " + year);
+}
+
 function addSalaryYear(pi) {
   const p = DB.income.persons[pi];
   const existing = (p.salaryYears || []).map(y => y.year);

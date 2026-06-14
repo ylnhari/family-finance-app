@@ -1,0 +1,7 @@
+# Personal / machine-local — family-finance-app
+# Copy this file to CLAUDE.local.md (gitignored) and fill in your values.
+# Claude Code auto-loads CLAUDE.local.md alongside CLAUDE.md.
+
+- Repo path: <absolute path to this repo on your machine>
+- Port: <port you run this on, e.g. 8765>
+- Reminder: data/ holds private financial data — keep it gitignored and local-only.

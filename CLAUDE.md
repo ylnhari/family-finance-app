@@ -1,10 +1,12 @@
 # Claude Instructions — family-finance-app
 
+> **Setup:** copy `CLAUDE.local.md.example` → `CLAUDE.local.md` (gitignored, auto-loaded) and fill in your machine-local values. Personal/global preferences live in your user-level `~/.claude/CLAUDE.md`.
+
 ## Role
 Maintain a self-contained local finance tracker. No cloud, no accounts, no external deps — Python stdlib + browser only.
 
 ## Context
-Personal + family finance tracker for Hari. Tracks income, expenses, loans, cards. Data lives in `data/finances.json` (gitignored). Server is `server.py` (stdlib only, runs on port 8765).
+A self-contained personal/family finance tracker. Tracks income, expenses, loans, cards. Data lives in `data/finances.json` (gitignored). Server is `server.py` (stdlib only); default port 8765 — see `CLAUDE.local.md`.
 
 **Privacy rule:** `data/` is gitignored. Never read, log, or transmit the contents of `data/finances.json` to any external service.
 

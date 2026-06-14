@@ -39,8 +39,8 @@ body{font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;ba
 .kpi .delta{font-size:12px;margin-top:3px}
 .pos{color:var(--green)} .neg{color:var(--red)} .warn{color:var(--amber)}
 .kpi .value.pos{color:var(--green)} .kpi .value.neg{color:var(--red)}
-.earner-head{background:#10182c;color:#fff}
 .panel{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:18px}
+.earner-head,.panel.earner-head{background:#10182c;color:#fff}
 .panel h2{font-size:16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .two-col{grid-template-columns:1fr 1fr}
 @media(max-width:980px){.two-col{grid-template-columns:1fr}#main{padding:20px 14px}}

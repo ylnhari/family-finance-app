@@ -10,6 +10,7 @@ The app code contains no personal information - share the folder freely,
 just keep (or delete) your own data directory.
 """
 import argparse
+import base64
 import json
 import os
 import re
@@ -17,6 +18,8 @@ import shutil
 import socket
 import sys
 import threading
+import urllib.request
+import urllib.error
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -67,6 +70,134 @@ EMPTY_DATA = {
 }
 
 DATA_DIR = None  # set in main()
+
+# ── Gemini AI extraction ───────────────────────────────────────────────────────
+GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_GEN_URL  = GEMINI_BASE_URL + "/models/{model}:generateContent?key={key}"
+GEMINI_LIST_URL = GEMINI_BASE_URL + "/models?key={key}&pageSize=100"
+
+# Ordered by preference: fastest/lightest first — each has separate quota buckets
+GEMINI_PREFERRED = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-lite-latest",
+    "gemini-flash-latest",
+    "gemini-2.0-flash-exp",
+    "gemini-2.5-pro",
+    "gemini-pro-latest",
+]
+
+PAYSLIP_MIME = {
+    ".pdf": "application/pdf", ".png": "image/png",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+}
+
+EXTRACTION_PROMPT = (
+    "You are a payslip and compensation document parser for Indian salary documents.\n"
+    "Return ONLY valid JSON (no markdown, no code blocks, no explanation):\n"
+    "{\n"
+    '  "year": <fiscal year as integer e.g. 2025>,\n'
+    '  "components": [{"component":"<name>","amount":<monthly_INR_number>,"scope":"<gross|ctc>"}],\n'
+    '  "deductions":  [{"component":"<name>","amount":<monthly_INR_number>}],\n'
+    '  "variablePctEligible": <percentage number or null>,\n'
+    '  "oneTimeBonus": <annual amount number or null>\n'
+    "}\n"
+    "Rules:\n"
+    "- All amounts must be monthly in INR (divide annual/yearly figures by 12)\n"
+    "- scope='gross' for components paid in take-home: Basic, HRA, Special Allowance, LTA, Bonus, Flexible Pay\n"
+    "- scope='ctc' for employer-only costs not received in hand: Employer PF, Employer NPS, Gratuity\n"
+    "- variablePctEligible: extract only if document mentions variable/performance pay as a % of CTC\n"
+    "- oneTimeBonus: joining bonus, retention bonus, or similar one-time annual payments\n"
+    "- If a field is not found in the document, use null\n"
+    "- Return ONLY the JSON object, nothing else"
+)
+
+_gemini_available_models = None  # cached after first successful list call
+
+
+def _list_gemini_models():
+    """Return set of model IDs that support generateContent. Cached per process."""
+    global _gemini_available_models
+    if _gemini_available_models is not None:
+        return _gemini_available_models
+    url = GEMINI_LIST_URL.format(key=GEMINI_API_KEY)
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        available = set()
+        for m in data.get("models", []):
+            if "generateContent" in m.get("supportedGenerationMethods", []):
+                name = m["name"]
+                if name.startswith("models/"):
+                    name = name[len("models/"):]
+                available.add(name)
+        _gemini_available_models = available
+        print("  Gemini models available: " + ", ".join(sorted(available)))
+    except Exception as e:
+        print("  Warning: could not list Gemini models (%s) — using defaults" % e)
+        _gemini_available_models = set()
+    return _gemini_available_models
+
+
+def _pick_gemini_models():
+    """Return ordered list to try: preferred models that are available, then rest as fallback."""
+    available = _list_gemini_models()
+    if not available:
+        return GEMINI_PREFERRED  # listing failed — try all in order
+    ordered = [m for m in GEMINI_PREFERRED if m in available]
+    # append any available multimodal models not in preferred list
+    extras = sorted(m for m in available if m not in GEMINI_PREFERRED
+                    and ("flash" in m or "pro" in m or "vision" in m))
+    return ordered + extras or GEMINI_PREFERRED
+
+
+def _gemini_call(file_bytes, mime_type, model):
+    """Single model call. Raises urllib.error.HTTPError on API errors."""
+    payload = json.dumps({
+        "contents": [{"parts": [
+            {"inline_data": {"mime_type": mime_type,
+                             "data": base64.b64encode(file_bytes).decode("ascii")}},
+            {"text": EXTRACTION_PROMPT},
+        ]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
+    }).encode("utf-8")
+    url = GEMINI_GEN_URL.format(model=model, key=GEMINI_API_KEY)
+    req = urllib.request.Request(url, data=payload,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+    text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return json.loads(text), model
+
+
+def gemini_extract(file_bytes, mime_type):
+    """Try models in preference order; fall back on 429/404. Returns (data, model_used)."""
+    models = _pick_gemini_models()
+    last_err = None
+    for model in models:
+        try:
+            return _gemini_call(file_bytes, mime_type, model)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")
+            if e.code in (429, 404, 503):
+                print("  Gemini %s: %d — trying next model" % (model, e.code))
+                last_err = "Model %s returned %d" % (model, e.code)
+                continue
+            raise RuntimeError("Gemini API error %d (%s): %s" % (e.code, model, body[:300]))
+        except Exception as e:
+            raise RuntimeError("Gemini call failed (%s): %s" % (model, e))
+    raise RuntimeError(
+        "All Gemini models returned 429/quota errors. Last: %s. "
+        "Wait a minute or check https://aistudio.google.com/plan" % last_err
+    )
 
 
 def data_file():
@@ -166,6 +297,11 @@ class Handler(BaseHTTPRequestHandler):
                     items.append({"name": n, "size": os.path.getsize(p),
                                   "modified": datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="seconds")})
             self._send(200, items)
+        elif path == "/api/gemini-status":
+            models = _pick_gemini_models() if GEMINI_API_KEY else []
+            self._send(200, {"available": bool(GEMINI_API_KEY),
+                             "models": models,
+                             "preferred": models[0] if models else None})
         elif path == "/api/backups":
             items = []
             for n in sorted(os.listdir(backups_dir()), reverse=True):
@@ -238,6 +374,25 @@ class Handler(BaseHTTPRequestHandler):
             make_backup("prerestore")                # safety snapshot of current data
             shutil.copy2(src, data_file())
             return self._send(200, {"ok": True, "restored": name})
+        if parsed.path == "/api/extract-payslip":
+            if not GEMINI_API_KEY:
+                return self._err(503, "Gemini API key not configured. Set GEMINI_API_KEY in your environment.")
+            body = json.loads(self._body().decode("utf-8"))
+            name = safe_name(body.get("filename", ""))
+            fp   = os.path.join(files_dir(), name)
+            if not os.path.isfile(fp):
+                return self._err(404, "File not found: %s" % name)
+            ext  = os.path.splitext(name)[1].lower()
+            mime = PAYSLIP_MIME.get(ext)
+            if not mime:
+                return self._err(400, "Unsupported file type. Upload a PDF, PNG, JPG, or WEBP.")
+            with open(fp, "rb") as f:
+                file_bytes = f.read()
+            try:
+                extracted, model_used = gemini_extract(file_bytes, mime)
+                return self._send(200, {"ok": True, "extracted": extracted, "model": model_used})
+            except Exception as e:
+                return self._err(422, str(e))
         if parsed.path != "/api/upload":
             return self._err(404, "Not found")
         q = parse_qs(parsed.query)
