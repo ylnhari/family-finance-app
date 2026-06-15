@@ -22,12 +22,19 @@ function outstandingFromEMI(emi, annualRate, remMonths) {
   return emi * (1 - Math.pow(1 + r, -remMonths)) / r;
 }
 
-/* full amortization schedule. extraMonthly = optional flat prepayment each month */
-function amortSchedule(P, annualRate, n, emiOverride, extraMonthly) {
+/* full amortization schedule.
+   extraMonthly = optional flat extra paid every month (recurring what-if).
+   prepayments  = optional [{month, amount, adjustMode:"tenure"|"emi"}] lump sums,
+                  applied at the end of their month (same semantics as loanState):
+                  "tenure" keeps EMI and finishes sooner; "emi" keeps remaining
+                  months and lowers the EMI. */
+function amortSchedule(P, annualRate, n, emiOverride, extraMonthly, prepayments) {
   const r = annualRate / 12;
-  const emi = emiOverride || calcEMI(P, annualRate, n);
+  let emi = emiOverride || calcEMI(P, annualRate, n);
+  const pps = (prepayments || []).filter(p => num(p.amount) > 0)
+    .sort((a, b) => num(a.month) - num(b.month));
   const rows = [];
-  let bal = P, totInt = 0, m = 0;
+  let bal = P, totInt = 0, m = 0, ppIdx = 0;
   while (bal > 0.5 && m < 1200) {
     m++;
     const interest = bal * r;
@@ -36,7 +43,20 @@ function amortSchedule(P, annualRate, n, emiOverride, extraMonthly) {
     if (principal > bal) principal = bal;
     bal -= principal;
     totInt += interest;
-    rows.push({ m, emi: principal + interest, interest, principal, balance: bal });
+    let prepay = 0;
+    while (ppIdx < pps.length && num(pps[ppIdx].month) === m) {
+      const pp = pps[ppIdx];
+      const amt = Math.min(num(pp.amount), bal);
+      prepay += amt;
+      bal -= amt;
+      if (bal <= 0.5) bal = 0;
+      if (bal > 0 && pp.adjustMode === "emi") {
+        const remMonths = n - m;
+        if (remMonths > 0) emi = calcEMI(bal, annualRate, remMonths);
+      }
+      ppIdx++;
+    }
+    rows.push({ m, emi: principal + interest, interest, principal, balance: bal, prepay });
   }
   return { rows, emi, totalInterest: totInt, months: m, diverges: false };
 }

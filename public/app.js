@@ -1811,8 +1811,8 @@ function showAmort(i, extraMonthly) {
   const L = DB.loans[i];
   extraMonthly = extraMonthly || 0;
   const st = loanState(L);
-  const base = amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null);
-  const what = extraMonthly ? amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null, extraMonthly) : base;
+  const base = amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null, 0, L.prepayments);
+  const what = extraMonthly ? amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null, extraMonthly, L.prepayments) : base;
   const saved = base.totalInterest - what.totalInterest;
   const rows = what.rows.map(r => `
     <tr${r.m === st.paidMonths ? ' style="border-bottom:2px solid var(--accent)"' : ""}>
@@ -1844,7 +1844,7 @@ function showAmort(i, extraMonthly) {
 function exportAmortCSV(i, extraMonthly) {
   const L = DB.loans[i];
   const st = loanState(L);
-  const s = amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null, extraMonthly || 0);
+  const s = amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null, extraMonthly || 0, L.prepayments);
   let csv = "Month,Payment,Principal,Interest,Balance\n" +
     s.rows.map(r => [r.m, r.emi.toFixed(2), r.principal.toFixed(2), r.interest.toFixed(2), r.balance.toFixed(2)].join(",")).join("\n");
   const a = document.createElement("a");

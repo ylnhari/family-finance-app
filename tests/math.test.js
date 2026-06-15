@@ -49,6 +49,40 @@ test("amortSchedule flags diverging loan (EMI < monthly interest)", () => {
   assert.equal(s.diverges, false);
 });
 
+test("amortSchedule applies lump-sum prepayments and matches loanState", () => {
+  const args = [721000, 0.099, 96, 10941];
+  const prepays = [
+    { month: 3, amount: 20999, adjustMode: "tenure" },
+    { month: 9, amount: 165000, adjustMode: "tenure" }
+  ];
+  const plain = amortSchedule(...args);
+  const withPre = amortSchedule(...args, 0, prepays);
+  // lump sums shorten the schedule and cut total interest vs the plain run
+  assert.ok(withPre.months < plain.months, "prepayments shorten payoff");
+  assert.ok(withPre.totalInterest < plain.totalInterest, "prepayments cut interest");
+  // and it agrees with the dashboard's prepayment-aware engine (loanState)
+  const st = loanState({ principal: 721000, annualRate: 0.099, tenureMonths: 96,
+    emi: 10941, startDate: null, prepayments: prepays });
+  assert.equal(withPre.months, st.sched.months);
+  approx(withPre.totalInterest, st.totalInterest, 1);
+  approx(withPre.rows[withPre.rows.length - 1].balance, 0, 0.5);
+});
+
+test("amortSchedule emi-mode prepayment keeps tenure, lowers EMI", () => {
+  const base = amortSchedule(1000000, 0.09, 120, calcEMI(1000000, 0.09, 120));
+  const pre = amortSchedule(1000000, 0.09, 120, calcEMI(1000000, 0.09, 120), 0,
+    [{ month: 12, amount: 200000, adjustMode: "emi" }]);
+  // emi mode does not shorten beyond the prepay credit; payment after month 12 drops
+  const laterRow = pre.rows[20];
+  assert.ok((laterRow.principal + laterRow.interest) < base.rows[20].emi, "EMI reduced after emi-mode prepay");
+});
+
+test("amortSchedule without prepayments is unchanged (back-compat)", () => {
+  const s = amortSchedule(500000, 0.10, 60);
+  assert.equal(s.months, 60);
+  assert.equal(s.rows[0].prepay, 0);
+});
+
 test("loanState: no prepayment matches plain schedule", () => {
   const L = { principal: 1000000, annualRate: 0.09, tenureMonths: 120, startDate: null };
   const st = loanState(L);
