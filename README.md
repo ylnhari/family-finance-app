@@ -1,5 +1,8 @@
 # Family Finance
 
+[![CI](https://github.com/ylnhari/family-finance-app/actions/workflows/ci.yml/badge.svg)](https://github.com/ylnhari/family-finance-app/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A self-contained personal & family finance tracker that runs entirely on your own machine.
 No accounts, no cloud, no dependencies — just Python and a browser.
 
@@ -8,7 +11,7 @@ No accounts, no cloud, no dependencies — just Python and a browser.
 ```
 git clone <this-repo-url>
 cd family-finance-app
-python server.py          # or double-click start.bat (Windows) / ./start.sh (Mac & Linux)
+python server.py --port 8765   # or double-click start.bat (Windows) / ./start.sh (Mac & Linux)
 ```
 
 The app opens at http://127.0.0.1:8765. Press Ctrl+C to stop.
@@ -16,7 +19,11 @@ First run creates an empty `data/finances.json` — start adding your own number
 
 **Requirements:** Python 3.8+ (standard library only, nothing to `pip install`).
 
-Options: `--port 9000`, `--data-dir /path/to/data`, `--no-browser`
+**Choosing the port:** the server binds a fixed port and **does not hunt for a free one**.
+It reads the port from a sibling `ports.json` registry if present, otherwise you pass
+`--port`. If the chosen port is already in use it stops with a clear message (re-running while
+the app is already up just opens the running instance). Other options: `--data-dir
+/path/to/data`, `--host`, `--no-browser`.
 
 ## Try the demo
 
@@ -92,6 +99,19 @@ family-finance-app/
 ├─ public/          # the app (index.html, style.css, app.js) — no personal data
 └─ data/            # YOUR data — created on first run, git-ignored
 ```
+
+## Contributing
+
+Contributions are welcome — please read [CONTRIBUTING.md](CONTRIBUTING.md) first (the big one:
+**no new dependencies**, and every change ships with tests + demo data). See
+[CHANGELOG.md](CHANGELOG.md) for what's changed and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+for community expectations.
+
+## Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md). In short:
+this is a single-user local app, `data/` never leaves your machine, and the optional Gemini
+endpoints are off unless you set an API key.
 
 ## License
 
