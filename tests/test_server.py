@@ -95,6 +95,57 @@ class ServerTests(unittest.TestCase):
         self.assertIsInstance(body, dict)
         self.assertIn("settings", body)  # always written on save
 
+    def test_ping_reports_app_and_data_dir(self):
+        st, body = _req("GET", self.base + "/api/ping")
+        self.assertEqual(st, 200)
+        self.assertEqual(body["app"], "family-finance-app")
+        self.assertEqual(body["dataDir"], os.path.abspath(self.tmp))
+
+    def test_app_already_running_matches_only_same_data_dir(self):
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import server as srv
+        # same app + same data dir -> reuse
+        self.assertTrue(srv.app_already_running(self.port, self.tmp))
+        # same app, different data dir (a --demo / --data-dir instance) -> NOT reuse
+        self.assertFalse(srv.app_already_running(self.port, self.tmp + "_other"))
+        # nothing listening -> False
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        free = s.getsockname()[1]
+        s.close()
+        self.assertFalse(srv.app_already_running(free, self.tmp))
+
+    def test_file_lock_is_exclusive(self):
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import server as srv
+        base = os.path.join(self.tmp, "lk")
+        held = srv.file_lock(base, timeout=10)
+        held.__enter__()
+        try:
+            with self.assertRaises(TimeoutError):
+                srv.file_lock(base, timeout=0.3).__enter__()
+        finally:
+            held.__exit__(None, None, None)
+
+    def test_occupied_port_fails_without_hopping(self):
+        blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        busy = blocker.getsockname()[1]
+        try:
+            env = dict(os.environ)
+            env.pop("GEMINI_API_KEY", None)
+            proc = subprocess.run(
+                [sys.executable, SERVER, "--port", str(busy),
+                 "--data-dir", tempfile.mkdtemp(prefix="fft-busy-"), "--no-browser"],
+                capture_output=True, text=True, timeout=20, env=env)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("unavailable", (proc.stdout + proc.stderr).lower())
+        finally:
+            blocker.close()
+
     def test_full_document_roundtrip_preserves_all_sections(self):
         doc = {k: [] for k in ("expenses", "monthlyInvestments", "portfolio",
                                "gold", "loans", "goals", "cards", "documents")}

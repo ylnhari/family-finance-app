@@ -5,6 +5,7 @@ let DB = null;            // the whole data document
 let currentPage = "dashboard";
 let saveTimer = null;
 let incomeYear = null;          // null = auto-select latest year per earner
+let hideValues = localStorage.getItem("ffa_hideValues") === "1";
 
 /* ================= persistence ================= */
 async function loadDB() {
@@ -17,7 +18,7 @@ function migrate() {
   const d = { persons: [], locations: [], currency: "INR", locale: "en-IN", appName: "Family Finance" };
   for (const k in d) if (DB.settings[k] === undefined) DB.settings[k] = d[k];
   DB.income = DB.income || { persons: [] };
-  for (const k of ["expenses","monthlyInvestments","portfolio","gold","loans","goals","cards","documents"])
+  for (const k of ["expenses","monthlyInvestments","portfolio","gold","loans","goals","cards","documents","ledgers"])
     DB[k] = DB[k] || [];
 
   /* ---- predefined value lists (seeded once from existing data) ---- */
@@ -43,6 +44,10 @@ function migrate() {
   seed("cardTypes", DB.cards.map(c => c.type), ["Credit", "Debit", "Credit Virtual", "Debit Virtual", "Food Card", "Priority Pass", "Other"]);
   seed("networks", DB.cards.map(c => c.variant), ["VISA", "MasterCard", "RuPay", "AmEx"]);
   seed("lenders", DB.loans.map(L => L.lender));
+  /* instruments for the Lending page = your card names + any savings accounts already used */
+  seed("ledgerInstruments",
+    DB.cards.map(c => c.name).concat((DB.ledgers || []).flatMap(L => (L.transactions || []).map(t => t.instrument))),
+    ["ICICI Savings", "IDFC Savings", "HDFC Savings", "Jupiter", "Cash / UPI"]);
   seed("incomeComponents",
     (DB.income.persons || []).flatMap(p =>
       (p.salaryYears || []).flatMap(yr => (yr.components || []).map(c => c.component))
@@ -67,6 +72,18 @@ function migrate() {
   DB.settings.personMeta = DB.settings.personMeta || {};   // { name: { dob: "YYYY-MM-DD" } }
   DB.portfolio.forEach(p => { if (p.maturityAge === undefined) p.maturityAge = null; });
   DB.loans.forEach(L => { if (!L.prepayments) L.prepayments = []; });
+  /* ledgers: ensure each person has a transactions array and each row has the newer fields */
+  DB.ledgers.forEach(L => {
+    L.transactions = L.transactions || [];
+    L.transactions.forEach(t => {
+      if (t.cashbackMode === undefined) t.cashbackMode = "fixed";
+      if (t.cashback === undefined) t.cashback = 0;
+      if (t.extraCharges === undefined) t.extraCharges = 0;
+      if (t.cancelled === undefined) t.cancelled = false;
+      if (t.instrument === undefined) t.instrument = "";
+      if (t.notes === undefined) t.notes = "";
+    });
+  });
   DB.gold.forEach(g => { if (g.purchasePrice === undefined) g.purchasePrice = null; });
   DB.goals.forEach(g => {
     if (g.currentMarketValue === undefined) g.currentMarketValue = null;
@@ -182,6 +199,7 @@ function updPersonDobParts(i) {
 
 function fmtMoney(v, compact) {
   if (v === null || v === undefined || isNaN(v)) return "–";
+  if (hideValues) return "••••";
   const cur = DB.settings.currency || "INR", loc = DB.settings.locale || "en-IN";
   try {
     return new Intl.NumberFormat(loc, {
@@ -191,7 +209,7 @@ function fmtMoney(v, compact) {
   } catch (e) { return cur + " " + Math.round(v).toLocaleString(); }
 }
 const fmtNum = v => isFinite(v) ? new Intl.NumberFormat(DB.settings.locale || "en-IN", { maximumFractionDigits: 1 }).format(v) : "–";
-const fmtPct = v => isFinite(v) ? (v * 100).toFixed(1) + "%" : "–";
+const fmtPct = v => hideValues ? "•••" : (isFinite(v) ? (v * 100).toFixed(1) + "%" : "–");
 function fmtDate(d) {
   if (!d) return "–";
   const dt = new Date(d);
@@ -563,22 +581,42 @@ PAGES.dashboard = () => {
 
   const goalsOpen = DB.goals.filter(g => !g.fulfilled);
 
-  // net worth waterfall SVG
+  // net worth segmented bar: Assets = Net Worth + Liabilities
   const nwSVG = (() => {
-    const W = 420, H = 100, pad = 10;
-    const maxV = Math.max(assets, liab, 1);
-    const aW = Math.max(4, (assets / maxV) * (W - pad * 2));
-    const lW = Math.max(4, (liab / maxV) * (W - pad * 2));
-    const nW = Math.max(4, (Math.abs(net) / maxV) * (W - pad * 2));
-    const labels = (v, label, x, w, color, textColor) =>
-      `<rect x="${x}" y="20" width="${w}" height="28" rx="5" fill="${color}"/>
-       <text x="${x + w / 2}" y="38" text-anchor="middle" font-size="11" font-weight="700" fill="${textColor}">${fmtMoney(v, true)}</text>
-       <text x="${x + w / 2}" y="60" text-anchor="middle" font-size="10" fill="#6b7385">${label}</text>`;
-    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin-top:8px">
-      ${labels(assets, "Assets", pad, aW, "#e3f5ec", "#108a4d")}
-      ${liab > 0 ? labels(liab, "Liabilities", pad, lW, "#fbe9ec", "#cc3344") : ""}
-      ${labels(Math.abs(net), "Net Worth", pad, nW, net >= 0 ? "#e8eefc" : "#fbe9ec", net >= 0 ? "#2456e6" : "#cc3344")}
-    </svg>`;
+    const W = 420, H = 80, pad = 12, barY = 22, barH = 30, rx = 7;
+    const usable = W - pad * 2;
+
+    if (net >= 0) {
+      const scale = assets > 0 ? usable / assets : 1;
+      const nwW = Math.max(0, net * scale);
+      const lW  = Math.max(0, liab * scale);
+      const nwLX = pad + Math.min(nwW, usable) / 2;
+      const lLX  = pad + nwW + lW / 2;
+      return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin-top:8px">
+        <text x="${W/2}" y="13" text-anchor="middle" font-size="10" fill="#6b7385">Total Assets · ${fmtMoney(assets, true)}</text>
+        <defs><clipPath id="nwBarClip"><rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}"/></clipPath></defs>
+        <rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}" fill="#e3f5ec"/>
+        <rect x="${pad}" y="${barY}" width="${nwW}" height="${barH}" fill="#2456e6" clip-path="url(#nwBarClip)"/>
+        ${liab > 0 ? `<rect x="${pad + nwW}" y="${barY}" width="${lW}" height="${barH}" fill="#e84255" clip-path="url(#nwBarClip)"/>` : ""}
+        ${liab > 0 ? `<line x1="${pad + nwW}" y1="${barY}" x2="${pad + nwW}" y2="${barY + barH}" stroke="white" stroke-width="2"/>` : ""}
+        <text x="${nwLX}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#2456e6">Net Worth · ${fmtMoney(net, true)}</text>
+        ${liab > 0 ? `<text x="${lLX}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#cc3344">Liabilities · ${fmtMoney(liab, true)}</text>` : ""}
+      </svg>`;
+    } else {
+      // liab > assets — negative net worth; scale to liabilities
+      const scale = liab > 0 ? usable / liab : 1;
+      const aW = Math.max(0, assets * scale);
+      const excessW = usable - aW;
+      return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin-top:8px">
+        <text x="${W/2}" y="13" text-anchor="middle" font-size="10" fill="#cc3344">Net Worth · ${fmtMoney(net, true)}</text>
+        <defs><clipPath id="nwBarClip"><rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}"/></clipPath></defs>
+        <rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}" fill="#fbe9ec"/>
+        <rect x="${pad}" y="${barY}" width="${aW}" height="${barH}" fill="#22a366" clip-path="url(#nwBarClip)"/>
+        <line x1="${pad + aW}" y1="${barY}" x2="${pad + aW}" y2="${barY + barH}" stroke="white" stroke-width="2"/>
+        <text x="${pad + aW / 2}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#108a4d">Assets · ${fmtMoney(assets, true)}</text>
+        <text x="${pad + aW + excessW / 2}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#cc3344">Excess Debt · ${fmtMoney(liab - assets, true)}</text>
+      </svg>`;
+    }
   })();
 
   return pageHead(esc(DB.settings.appName || "Family Finance"),
@@ -1874,6 +1912,159 @@ function emiCalculator() {
 function attachDocToLoan(loanId) { addDocument({ linkedType: "loan", linkedId: loanId }); }
 
 /* ================= GOALS ================= */
+/* ================= LENDING & BORROWING ================= */
+/* Standalone tracker of money lent to / borrowed from specific people.
+   Intentionally NOT added to net worth / liabilities — it lives only on this page. */
+let lendingPerson = null;   // active person id
+
+function ledgerById(id) { return DB.ledgers.find(L => L.id === id) || null; }
+function activeLedger() {
+  if (!DB.ledgers.length) return null;
+  let L = ledgerById(lendingPerson);
+  if (!L) { L = DB.ledgers[0]; lendingPerson = L.id; }
+  return L;
+}
+const ledgerSigned = n => (n >= 0 ? "+" : "−") + fmtMoney(Math.abs(n));
+
+PAGES.lending = () => {
+  const head = pageHead("Lending & Borrowing",
+    "Money you lend to / borrow from people · stays on this page, not added to net worth",
+    `<button class="btn" onclick="addLedgerPerson()">+ Add Person</button>`);
+  if (!DB.ledgers.length) {
+    return head + `<div class="page-note">ⓘ&nbsp;<div>Add a person, then log each transaction: a <b>debit</b> is money you spent on their behalf (they owe you), a <b>credit</b> is a repayment. Mark a row <b>cancelled</b> to void it; record <b>cashback</b> as a flat amount or a % of the order — it reduces what they owe.</div></div>
+      <div class="empty">No people yet — click <b>+ Add Person</b> to start a ledger.</div>`;
+  }
+  const L = activeLedger();
+  const t = ledgerTotals(L.transactions);
+  const tabs = DB.ledgers.map(p => {
+    const pt = ledgerTotals(p.transactions);
+    const tag = pt.direction === "receive" ? "+" : pt.direction === "owe" ? "−" : "";
+    return `<button class="ltab${p.id === L.id ? " active" : ""}" onclick="selectLedger('${p.id}')">
+      ${esc(p.person)} <span class="small muted">${tag}${fmtMoney(pt.abs)}</span></button>`;
+  }).join("");
+  const banner = t.direction === "receive"
+    ? `<div class="ledger-banner receive"><div class="lb-label">${esc(L.person)} owes you</div><div class="lb-amt">${fmtMoney(t.abs)}</div><div class="small muted">you'll receive</div></div>`
+    : t.direction === "owe"
+    ? `<div class="ledger-banner owe"><div class="lb-label">You owe ${esc(L.person)}</div><div class="lb-amt">${fmtMoney(t.abs)}</div><div class="small muted">you'll pay</div></div>`
+    : `<div class="ledger-banner settled"><div class="lb-label">Settled with ${esc(L.person)}</div><div class="lb-amt">${fmtMoney(0)}</div><div class="small muted">nothing outstanding</div></div>`;
+  const kpis = `<div class="ledger-kpis">
+    <div class="kpi"><div class="label">Net lent</div><div class="value">${fmtMoney(t.lent)}</div></div>
+    <div class="kpi"><div class="label">Total repaid</div><div class="value">${fmtMoney(t.repaid)}</div></div>
+    <div class="kpi"><div class="label">Cashback saved</div><div class="value">${fmtMoney(t.cashback)}</div></div>
+    <div class="kpi"><div class="label">Transactions</div><div class="value">${t.count}${t.cancelled ? ` <span class="small muted">(${t.cancelled} void)</span>` : ""}</div></div>
+  </div>`;
+  const rowsByYear = {};
+  L.transactions.forEach((tx, i) => {
+    const y = ledgerYear(tx.date) || "—";
+    (rowsByYear[y] = rowsByYear[y] || []).push([tx, i]);
+  });
+  const years = Object.keys(rowsByYear).sort((a, b) => (a === "—" ? 1 : b === "—" ? -1 : b - a));
+  const yearBlocks = years.map(y => {
+    const list = rowsByYear[y].slice().sort((a, b) => (String(a[0].date) < String(b[0].date) ? 1 : -1));
+    const ytot = ledgerTotals(list.map(([tx]) => tx));
+    const body = list.map(([tx, i]) => {
+      const cb = ledgerCashback(tx), net = ledgerNet(tx);
+      return `<tr class="${tx.cancelled ? "row-cancelled" : ""}">
+        <td>${fmtDate(tx.date)}</td>
+        <td><span class="chip ${tx.type === "credit" ? "green" : "amber"}">${tx.type === "credit" ? "credit" : "debit"}</span></td>
+        <td>${esc(tx.instrument || "—")}${tx.notes ? `<div class="small muted">${esc(tx.notes)}</div>` : ""}</td>
+        <td class="num">${fmtMoney(num(tx.amount))}</td>
+        <td class="num">${cb ? fmtMoney(cb) + (tx.cashbackMode === "percent" ? ` <span class="small muted">(${fmtNum(num(tx.cashback))}%)</span>` : "") : "–"}</td>
+        <td class="num">${num(tx.extraCharges) ? fmtMoney(num(tx.extraCharges)) : "–"}</td>
+        <td class="num">${tx.cancelled ? `<span class="chip gray">void</span>` : ledgerSigned(net)}</td>
+        <td class="row-actions">
+          <button class="icon-btn" title="Edit" onclick="editLedgerTx('${L.id}',${i})">✎</button>
+          <button class="icon-btn danger" title="Delete" onclick="delLedgerTx('${L.id}',${i})">✕</button>
+        </td></tr>`;
+    }).join("");
+    return `<div class="ledger-year">
+      <div class="ly-head"><h3>${y}</h3><div class="small muted">net ${ledgerSigned(ytot.net)} · ${ytot.count} txn${ytot.count === 1 ? "" : "s"}</div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Type</th><th>Instrument / note</th><th class="num">Amount</th><th class="num">Cashback</th><th class="num">Extra</th><th class="num">Net</th><th></th></tr></thead>
+        <tbody>${body}</tbody></table></div></div>`;
+  }).join("");
+  return head + `
+    <div class="ltabs">${tabs}</div>
+    <div class="ledger-top">${banner}${kpis}</div>
+    <div class="page-note">ⓘ&nbsp;<div><b>debit</b> = you paid on their behalf (they owe you) · <b>credit</b> = a repayment · <b>cancelled</b> voids the row · cashback (flat or %) reduces what they owe. These balances are standalone and not part of your net worth.</div></div>
+    <div class="head-actions" style="margin:10px 0 4px">
+      <button class="btn" onclick="addLedgerTx('${L.id}')">+ Add Transaction</button>
+      <button class="btn ghost" onclick="renameLedgerPerson('${L.id}')">Rename</button>
+      <button class="btn ghost danger" onclick="delLedgerPerson('${L.id}')">Delete person</button>
+    </div>
+    ${L.transactions.length ? yearBlocks : '<div class="empty">No transactions yet for ' + esc(L.person) + '.</div>'}`;
+};
+
+function selectLedger(id) { lendingPerson = id; render(); }
+function addLedgerPerson() {
+  formModal("Add person", [{ name: "person", label: "Person's name", required: true }], v => {
+    const L = { id: uid(), person: v.person, transactions: [] };
+    DB.ledgers.push(L); lendingPerson = L.id; closeModal(); save(); render();
+  });
+}
+function renameLedgerPerson(id) {
+  const L = ledgerById(id); if (!L) return;
+  formModal("Rename person", [{ name: "person", label: "Person's name", value: L.person, required: true }], v => {
+    L.person = v.person; closeModal(); save(); render();
+  });
+}
+function delLedgerPerson(id) {
+  const L = ledgerById(id); if (!L) return;
+  confirmModal(`Delete "${L.person}" and all ${L.transactions.length} transaction(s)? This can't be undone.`, () => {
+    DB.ledgers = DB.ledgers.filter(x => x.id !== id);
+    if (lendingPerson === id) lendingPerson = DB.ledgers[0] ? DB.ledgers[0].id : null;
+    save(); render();
+  });
+}
+function ledgerTxFields(tx) {
+  tx = tx || {};
+  return [
+    { type: "row", fields: [
+      { name: "date", label: "Date", type: "date", value: tx.date || new Date().toISOString().slice(0, 10), required: true },
+      { name: "type", label: "Type", type: "select", value: tx.type || "debit",
+        options: [["debit", "Debit — I paid for them"], ["credit", "Credit — they repaid"]] }]},
+    { type: "row", fields: [
+      { name: "instrument", label: "Instrument (card / account)", type: "combo", listKey: "ledgerInstruments", value: tx.instrument || "", allowEmpty: true },
+      { name: "amount", label: "Amount", type: "number", step: "any", value: tx.amount ?? "", required: true }]},
+    { type: "row", fields: [
+      { name: "cashbackMode", label: "Cashback type", type: "select", value: tx.cashbackMode || "fixed",
+        options: [["fixed", "Flat amount (₹)"], ["percent", "% of amount"]] },
+      { name: "cashback", label: "Cashback value", type: "number", step: "any", value: tx.cashback ?? 0 }]},
+    { type: "row", fields: [
+      { name: "extraCharges", label: "Extra charges (₹)", type: "number", step: "any", value: tx.extraCharges ?? 0 },
+      { name: "cancelled", label: "Cancelled (void this row)", type: "checkbox", value: !!tx.cancelled }]},
+    { name: "notes", label: "Note (optional)", value: tx.notes || "" },
+  ];
+}
+function ledgerTxVals(v) {
+  return { date: v.date, type: v.type, instrument: v.instrument,
+    amount: num(v.amount), cashbackMode: v.cashbackMode, cashback: num(v.cashback),
+    extraCharges: num(v.extraCharges), cancelled: !!v.cancelled, notes: v.notes };
+}
+function addLedgerTx(id) {
+  const L = ledgerById(id); if (!L) return;
+  formModal(`Add transaction — ${esc(L.person)}`, ledgerTxFields(), v => {
+    L.transactions.push({ id: uid(), ...ledgerTxVals(v) });
+    addPred("ledgerInstruments", v.instrument);
+    closeModal(); save(); render();
+  }, { note: "Cashback (flat or %) is subtracted; extra charges are added. Cancelled rows count as zero." });
+}
+function editLedgerTx(id, i) {
+  const L = ledgerById(id); if (!L) return;
+  formModal(`Edit transaction — ${esc(L.person)}`, ledgerTxFields(L.transactions[i]), v => {
+    Object.assign(L.transactions[i], ledgerTxVals(v));
+    addPred("ledgerInstruments", v.instrument);
+    closeModal(); save(); render();
+  });
+}
+function delLedgerTx(id, i) {
+  const L = ledgerById(id); if (!L) return;
+  const tx = L.transactions[i];
+  confirmModal(`Delete this ${esc(tx.type)} of ${fmtMoney(num(tx.amount))} on ${fmtDate(tx.date)}?`, () => {
+    L.transactions.splice(i, 1); save(); render();
+  });
+}
+
 PAGES.goals = () => {
   const open = DB.goals.map((g, i) => [g, i]).filter(([g]) => !g.fulfilled);
   const done = DB.goals.map((g, i) => [g, i]).filter(([g]) => g.fulfilled);
@@ -2327,11 +2518,27 @@ function wipeData() {
   });
 }
 
+/* ================= hide values toggle ================= */
+function toggleHideValues() {
+  hideValues = !hideValues;
+  localStorage.setItem("ffa_hideValues", hideValues ? "1" : "0");
+  syncHideValuesBtn();
+  render();
+}
+function syncHideValuesBtn() {
+  const btn = el("#toggleValues");
+  if (!btn) return;
+  btn.querySelector(".hv-label").textContent = hideValues ? "Show values" : "Hide values";
+  btn.title = hideValues ? "Values hidden — click to reveal" : "Click to hide all values";
+  btn.classList.toggle("hv-hidden", hideValues);
+}
+
 /* ================= init ================= */
 els("#nav button").forEach(b => b.onclick = () => navigate(b.dataset.page));
 loadDB().then(() => {
   el("#brandName").textContent = DB.settings.appName || "Family Finance";
   if (DB.settings.lastUpdated) el("#lastUpdated").textContent = "Updated " + fmtDateTime(DB.settings.lastUpdated);
+  syncHideValuesBtn();
   render();
 }).catch(e => {
   el("#main").innerHTML = `<div class="panel"><div class="empty">Could not load data: ${esc(e.message)}<br>Is the server running via <code>python server.py</code>?</div></div>`;

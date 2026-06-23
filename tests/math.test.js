@@ -4,7 +4,8 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   num, calcEMI, outstandingFromEMI, amortSchedule, loanState,
-  validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo
+  validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo,
+  ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
 } = require("../public/finance-math.js");
 
 const approx = (a, b, tol = 1) => assert.ok(Math.abs(a - b) <= tol, `${a} ≈ ${b} (±${tol})`);
@@ -114,6 +115,42 @@ test("loanState: prepayment larger than balance closes the loan", () => {
   assert.ok(pre.sched.months <= 6, "loan closes at/before prepay month");
   // final scheduled balance is zero (startDate null => st.balance is as-of-today, not final)
   approx(pre.sched.rows[pre.sched.rows.length - 1].balance, 0, 1);
+});
+
+test("loanState: two prepayments in one month == one combined prepayment (regression)", () => {
+  // Regression for the `bal -= prepay` cumulative-subtraction bug: two lump sums in
+  // the same month must reduce the balance by exactly their sum, no more.
+  const base = { principal: 1000000, annualRate: 0.09, tenureMonths: 120, startDate: null };
+  const split = loanState({ ...base, prepayments: [
+    { month: 12, amount: 100000, adjustMode: "tenure" },
+    { month: 12, amount: 100000, adjustMode: "tenure" },
+  ] });
+  const combined = loanState({ ...base, prepayments: [
+    { month: 12, amount: 200000, adjustMode: "tenure" },
+  ] });
+  assert.equal(split.sched.months, combined.sched.months);
+  approx(split.totalInterest, combined.totalInterest, 1);
+  // and it agrees with the (already-correct) amortSchedule engine
+  const amort = amortSchedule(1000000, 0.09, 120, calcEMI(1000000, 0.09, 120), 0,
+    [{ month: 12, amount: 100000, adjustMode: "tenure" },
+     { month: 12, amount: 100000, adjustMode: "tenure" }]);
+  assert.equal(split.sched.months, amort.months);
+  approx(split.totalInterest, amort.totalInterest, 1);
+});
+
+test("loanState: emi-mode prepayment that nearly closes the loan still terminates cleanly", () => {
+  const st = loanState({ principal: 300000, annualRate: 0.10, tenureMonths: 60, startDate: null,
+    prepayments: [{ month: 6, amount: 295000, adjustMode: "emi" }] });
+  assert.ok(Number.isFinite(st.sched.months) && st.sched.months <= 60, "finite, within tenure");
+  assert.ok(Number.isFinite(st.totalInterest), "interest is finite (no divergence)");
+  approx(st.sched.rows[st.sched.rows.length - 1].balance, 0, 1);
+});
+
+test("loanState: long tenure completes without hitting the 1200-month cap", () => {
+  const st = loanState({ principal: 1000000, annualRate: 0.085, tenureMonths: 300, startDate: null });
+  assert.equal(st.sched.months, 300);
+  assert.ok(st.sched.months < 1200, "well under the safety cap");
+  approx(st.sched.rows[st.sched.rows.length - 1].balance, 0, 0.5);
 });
 
 test("loanState: balance reflects elapsed time when startDate is set", () => {
@@ -235,4 +272,72 @@ test("maturityInfo: nothing set -> all null; age preferred over months", () => {
   assert.deepEqual(maturityInfo({}, 1988, 2026), { age: null, year: null });
   // both present -> age wins
   assert.deepEqual(maturityInfo({ maturityAge: 60, maturityMonths: 12 }, 1988, 2026), { age: 60, year: 2048 });
+});
+
+/* ---------------- lending & borrowing ledger ---------------- */
+test("ledgerCashback: fixed returns the flat value; percent is % of amount", () => {
+  assert.equal(ledgerCashback({ amount: 10000, cashbackMode: "fixed", cashback: 500 }), 500);
+  assert.equal(ledgerCashback({ amount: 10000, cashbackMode: "percent", cashback: 5 }), 500);
+  assert.equal(ledgerCashback({ amount: 8000, cashbackMode: "percent", cashback: 2.5 }), 200);
+  assert.equal(ledgerCashback({ amount: 8000 }), 0);            // no cashback fields -> 0
+  assert.equal(ledgerCashback(null), 0);
+});
+
+test("ledgerNet: debit adds (amount+extra−cashback), credit subtracts amount, cancelled is zero", () => {
+  approx(ledgerNet({ type: "debit", amount: 10000, cashbackMode: "percent", cashback: 5 }), 9500);
+  approx(ledgerNet({ type: "debit", amount: 8000, extraCharges: 40 }), 8040);
+  approx(ledgerNet({ type: "credit", amount: 5000 }), -5000);
+  assert.equal(ledgerNet({ type: "debit", amount: 9999, cancelled: true }), 0);
+  assert.equal(ledgerNet({ type: "credit", amount: 9999, cancelled: true }), 0);
+});
+
+test("ledgerYear extracts the year from an ISO date", () => {
+  assert.equal(ledgerYear("2024-03-14"), 2024);
+  assert.equal(ledgerYear("2025-12-31"), 2025);
+  assert.equal(ledgerYear(""), 0);
+});
+
+test("ledgerTotals: net, direction, per-year breakdown, cashback & cancelled tallies", () => {
+  const txns = [
+    { date: "2024-03-14", type: "debit", amount: 10000, cashbackMode: "percent", cashback: 5 }, // +9500
+    { date: "2024-06-20", type: "debit", amount: 8000, extraCharges: 40 },                       // +8040
+    { date: "2024-08-01", type: "credit", amount: 5000 },                                        // -5000
+    { date: "2024-09-10", type: "debit", amount: 6000, cancelled: true },                        // 0
+    { date: "2025-01-12", type: "credit", amount: 3000 }                                         // -3000
+  ];
+  const t = ledgerTotals(txns);
+  approx(t.net, 9540);
+  assert.equal(t.direction, "receive");
+  assert.equal(t.cancelled, 1);
+  approx(t.cashback, 500);
+  assert.equal(t.count, 5);
+  assert.equal(t.byYear.length, 2);
+  approx(t.byYear.find(y => y.year === 2024).net, 12540);   // 9500 + 8040 − 5000
+  approx(t.byYear.find(y => y.year === 2025).net, -3000);
+  assert.equal(t.byYear[0].year, 2025);                          // sorted newest-first
+});
+
+test("ledgerTotals: per-year count excludes cancelled rows, tracked separately", () => {
+  const t = ledgerTotals([
+    { date: "2024-03-14", type: "debit", amount: 10000 },
+    { date: "2024-06-20", type: "debit", amount: 8000 },
+    { date: "2024-09-10", type: "debit", amount: 6000, cancelled: true },
+    { date: "2025-01-12", type: "credit", amount: 3000 },
+  ]);
+  const y2024 = t.byYear.find(y => y.year === 2024);
+  const y2025 = t.byYear.find(y => y.year === 2025);
+  assert.equal(y2024.count, 2, "active rows only");
+  assert.equal(y2024.cancelled, 1, "voided rows counted apart");
+  assert.equal(y2025.count, 1);
+  assert.equal(y2025.cancelled, 0);
+  assert.equal(t.count, 4, "overall count still includes every row");
+});
+
+test("ledgerTotals: net-negative flips direction to 'owe'", () => {
+  const t = ledgerTotals([
+    { date: "2024-02-10", type: "credit", amount: 43000 },
+    { date: "2024-05-05", type: "debit", amount: 6000 }
+  ]);
+  approx(t.net, -37000);
+  assert.equal(t.direction, "owe");
 });

@@ -19,6 +19,9 @@ body{font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;ba
 #nav button.active{background:#24386b;color:#fff;font-weight:600}
 .ni{width:18px;text-align:center;opacity:.8}
 .sidebar-foot{padding:12px 16px;border-top:1px solid #233152;font-size:12px}
+.hide-values-btn{display:flex;align-items:center;gap:8px;background:none;border:0;color:#aab6d0;font:inherit;font-size:13px;padding:6px 6px 8px;border-radius:6px;cursor:pointer;width:100%;text-align:left;margin-bottom:6px}
+.hide-values-btn:hover{background:#1b2742;color:#fff}
+.hide-values-btn.hv-hidden{color:#f3c66b}
 .save-status{color:#7fd4a4}
 .save-status.saving{color:#f3c66b}
 .save-status.error{color:#ff8896}
@@ -155,3 +158,26 @@ label.fld span{display:block;margin-bottom:4px}
 .mt{margin-top:14px} .mb{margin-bottom:14px}
 .empty{padding:30px;text-align:center;color:var(--muted)}
 .section-title{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:18px 0 8px;font-weight:700}
+
+/* ---------- Lending & Borrowing ---------- */
+.ltabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.ltab{font:inherit;font-size:13.5px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:99px;padding:7px 14px;cursor:pointer}
+.ltab:hover{border-color:var(--accent)}
+.ltab.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.ledger-top{display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:14px;margin-bottom:16px;align-items:stretch}
+.ledger-banner{border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;justify-content:center}
+.ledger-banner.receive{background:var(--green-soft)}
+.ledger-banner.owe{background:var(--red-soft)}
+.ledger-banner.settled{background:var(--panel)}
+.ledger-banner .lb-label{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.ledger-banner .lb-amt{font-size:30px;font-weight:800;margin:2px 0;color:var(--ink)}
+.ledger-banner.receive .lb-amt{color:var(--green)}
+.ledger-banner.owe .lb-amt{color:var(--red)}
+.ledger-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.ledger-year{margin-bottom:18px}
+.ledger-year .ly-head{display:flex;justify-content:space-between;align-items:baseline;margin:6px 2px}
+.ledger-year .ly-head h3{font-size:16px;margin:0}
+tr.row-cancelled td{opacity:.5;text-decoration:line-through}
+tr.row-cancelled td.row-actions{text-decoration:none;opacity:1}
+.row-actions{white-space:nowrap;text-align:right}
+@media(max-width:760px){.ledger-top{grid-template-columns:1fr}}

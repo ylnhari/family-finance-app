@@ -95,8 +95,9 @@ function loanState(L) {
     let prepay = 0;
     while (ppIdx < prepayments.length && num(prepayments[ppIdx].month) === m) {
       const pp = prepayments[ppIdx];
-      prepay += Math.min(num(pp.amount), bal);
-      bal -= prepay;
+      const amt = Math.min(num(pp.amount), bal);
+      prepay += amt;
+      bal -= amt;
       if (bal <= 0.5) { bal = 0; }
       if (bal > 0 && pp.adjustMode === "emi") {
         const remMonths = tenure - m;
@@ -180,10 +181,74 @@ function maturityInfo(h, birthYear, nowYear) {
   return { age: null, year: null };
 }
 
+/* ===================== Lending & Borrowing ledger =====================
+   A self-contained tracker of money lent to / borrowed from a person.
+   Each transaction: { date:"YYYY-MM-DD", type:"debit"|"credit", instrument,
+     amount, cashbackMode:"fixed"|"percent", cashback, extraCharges, cancelled, notes }
+   Sign convention for the running balance = "what the other person owes you":
+     debit  (you paid on their behalf)  -> +(amount + extraCharges - cashback)
+     credit (they repaid you)           -> -(amount)
+     cancelled                          -> 0  (voided, regardless of type) */
+
+/* resolved cashback in currency for a row: a flat rupee value, or a % of the amount */
+function ledgerCashback(t) {
+  if (!t) return 0;
+  const amt = num(t.amount);
+  if ((t.cashbackMode || "fixed") === "percent") return amt * num(t.cashback) / 100;
+  return num(t.cashback);
+}
+
+/* signed net effect of one row on the balance the other person owes you */
+function ledgerNet(t) {
+  if (!t || t.cancelled) return 0;
+  const amt = num(t.amount);
+  if ((t.type || "debit") === "credit") return -amt;
+  return amt + num(t.extraCharges) - ledgerCashback(t);
+}
+
+/* calendar year (number) from a YYYY-MM-DD / ISO date string; 0 when unknown */
+function ledgerYear(dateStr) {
+  if (!dateStr) return 0;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr));
+  if (m) return parseInt(m[1], 10);
+  const d = new Date(dateStr);
+  return isNaN(d) ? 0 : d.getFullYear();
+}
+
+/* aggregate a person's transactions into overall + per-year totals.
+   net > 0 => they owe you (you'll receive); net < 0 => you owe them. */
+function ledgerTotals(transactions) {
+  const rows = transactions || [];
+  const years = {};
+  let net = 0, lent = 0, repaid = 0, cashback = 0, extra = 0, cancelled = 0;
+  for (const t of rows) {
+    const yKey = ledgerYear(t.date) || "—";
+    const yr = years[yKey] || (years[yKey] = { year: yKey, net: 0, lent: 0, repaid: 0, cashback: 0, count: 0, cancelled: 0 });
+    const n = ledgerNet(t);
+    yr.net += n; net += n;
+    if (t.cancelled) { cancelled++; yr.cancelled++; continue; }
+    yr.count++;
+    const cb = ledgerCashback(t);
+    cashback += cb; yr.cashback += cb;
+    if ((t.type || "debit") === "credit") {
+      repaid += num(t.amount); yr.repaid += num(t.amount);
+    } else {
+      const eff = num(t.amount) + num(t.extraCharges) - cb;
+      lent += eff; yr.lent += eff; extra += num(t.extraCharges);
+    }
+  }
+  const byYear = Object.values(years).sort((a, b) =>
+    a.year === "—" ? 1 : b.year === "—" ? -1 : b.year - a.year);
+  return { net, lent, repaid, cashback, extra, cancelled, count: rows.length, byYear,
+           direction: net > 0.5 ? "receive" : net < -0.5 ? "owe" : "settled",
+           abs: Math.abs(net) };
+}
+
 /* Node test access only — ignored in the browser */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     num, calcEMI, outstandingFromEMI, amortSchedule, monthsSince, loanState,
-    validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo
+    validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo,
+    ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
   };
 }

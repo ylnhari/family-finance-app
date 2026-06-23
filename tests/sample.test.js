@@ -5,17 +5,35 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { loanState, incomeTotalsForYear, computeGoldGain, maturityInfo } = require("../public/finance-math.js");
+const { loanState, incomeTotalsForYear, computeGoldGain, maturityInfo,
+        num, ledgerNet, ledgerCashback, ledgerTotals } = require("../public/finance-math.js");
 
 const SAMPLE = path.join(__dirname, "..", "samples", "demo-finances.json");
 const DB = JSON.parse(fs.readFileSync(SAMPLE, "utf8"));
 
 test("sample: top-level shape has every section the app expects", () => {
   for (const k of ["settings", "income", "expenses", "monthlyInvestments",
-                   "portfolio", "gold", "loans", "goals", "cards", "documents"]) {
+                   "portfolio", "gold", "loans", "goals", "cards", "documents", "ledgers"]) {
     assert.ok(k in DB, `missing section: ${k}`);
   }
   assert.ok(Array.isArray(DB.income.persons) && DB.income.persons.length >= 2, "≥2 earners");
+});
+
+test("sample: lending ledgers cover 2 people, multi-year, %-cashback, cancelled & both directions", () => {
+  assert.ok(Array.isArray(DB.ledgers) && DB.ledgers.length >= 2, "≥2 ledger people");
+  const all = DB.ledgers.flatMap(L => L.transactions);
+  assert.ok(all.some(t => t.cashbackMode === "percent"), "a %-cashback row to demo the feature");
+  assert.ok(all.some(t => t.cancelled), "a cancelled (voided) row");
+  assert.ok(all.some(t => num(t.extraCharges) > 0), "an extra-charges row");
+  // a percent cashback resolves to a positive rupee value, and cancelled rows net zero
+  const pct = all.find(t => t.cashbackMode === "percent" && !t.cancelled);
+  assert.ok(ledgerCashback(pct) > 0, "percent cashback resolves to ₹");
+  assert.equal(ledgerNet(all.find(t => t.cancelled)), 0, "cancelled row nets zero");
+  // a multi-year person and both balance directions present
+  assert.ok(DB.ledgers.some(L => ledgerTotals(L.transactions).byYear.length >= 2), "a multi-year ledger");
+  const dirs = new Set(DB.ledgers.map(L => ledgerTotals(L.transactions).direction));
+  assert.ok(dirs.has("receive"), "someone owes you");
+  assert.ok(dirs.has("owe"), "you owe someone");
 });
 
 test("sample: every earner's salary years compute positive CTC & in-hand", () => {

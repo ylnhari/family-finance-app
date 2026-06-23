@@ -346,5 +346,24 @@
       "linkedType": "", "linkedId": "", "notes": "renewal due Sep 2026",
       "addedOn": "2025-09-10T09:00:00"
     }
+  ],
+  "ledgers": [
+    {
+      "id": "led01", "person": "Ravi",
+      "transactions": [
+        { "id": "lt01", "date": "2024-03-14", "type": "debit", "instrument": "Flipkart Axis", "amount": 10000, "cashbackMode": "percent", "cashback": 5, "extraCharges": 0, "cancelled": false, "notes": "phone order — 5% card cashback" },
+        { "id": "lt02", "date": "2024-06-20", "type": "debit", "instrument": "HDFC Regalia", "amount": 8000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 40, "cancelled": false, "notes": "EMI processing fee added" },
+        { "id": "lt03", "date": "2024-08-01", "type": "credit", "instrument": "Jupiter", "amount": 5000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "partial repayment" },
+        { "id": "lt04", "date": "2024-09-10", "type": "debit", "instrument": "SBI Cashback", "amount": 6000, "cashbackMode": "percent", "cashback": 5, "extraCharges": 0, "cancelled": true, "notes": "order cancelled — voided" },
+        { "id": "lt05", "date": "2025-01-12", "type": "credit", "instrument": "ICICI Savings", "amount": 3000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "" }
+      ]
+    },
+    {
+      "id": "led02", "person": "Family",
+      "transactions": [
+        { "id": "lt06", "date": "2024-02-10", "type": "credit", "instrument": "ICICI Savings", "amount": 43000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "received from family" },
+        { "id": "lt07", "date": "2024-05-05", "type": "debit", "instrument": "Cash / UPI", "amount": 6000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "sent via UPI" }
+      ]
+    }
   ]
 }

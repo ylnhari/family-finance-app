@@ -18,6 +18,7 @@ import shutil
 import socket
 import sys
 import threading
+import time
 import urllib.request
 import urllib.error
 import webbrowser
@@ -121,7 +122,45 @@ EXTRACTION_PROMPT = (
 )
 
 _gemini_available_models = None  # cached after first successful list call
-_save_lock = threading.Lock()   # prevents concurrent writes to finances.json.tmp on Windows
+
+
+# ── cross-process file lock ─────────────────────────────────────────────────────
+try:
+    import fcntl
+    def _os_lock(fh):   fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    def _os_unlock(fh): fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+except ImportError:
+    import msvcrt
+    def _os_lock(fh):   fh.seek(0); msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+    def _os_unlock(fh): fh.seek(0); msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+class file_lock:
+    """Exclusive cross-process (and cross-thread) lock held via a `.lock` sidecar.
+    While held, no other process or instance can edit the guarded file."""
+    def __init__(self, target, timeout=10.0):
+        self.path = str(target) + ".lock"
+        self.timeout = timeout
+        self._fh = None
+
+    def __enter__(self):
+        self._fh = open(self.path, "a+")
+        deadline = time.time() + self.timeout
+        while True:
+            try:
+                _os_lock(self._fh)
+                return self
+            except OSError:
+                if time.time() >= deadline:
+                    self._fh.close(); self._fh = None
+                    raise TimeoutError("could not acquire lock: " + self.path)
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        try:
+            _os_unlock(self._fh)
+        finally:
+            self._fh.close(); self._fh = None
 
 
 def _list_gemini_models():
@@ -367,6 +406,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/ping":
+            self._send(200, {"app": REGISTRY_KEY, "dataDir": os.path.abspath(DATA_DIR)})
+            return
         if path == "/api/data":
             with open(data_file(), "r", encoding="utf-8") as f:
                 self._send(200, f.read())
@@ -427,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._err(400, "Invalid JSON: %s" % e)
         data.setdefault("settings", {})["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
-        with _save_lock:
+        with file_lock(data_file()):
             make_backup()  # automatic rotating daily backup (first save of the day)
             tmp = data_file() + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -452,8 +494,9 @@ class Handler(BaseHTTPRequestHandler):
                     json.load(f)                     # refuse to restore corrupt JSON
             except Exception as e:
                 return self._err(400, "Backup file is not valid JSON: %s" % e)
-            make_backup("prerestore")                # safety snapshot of current data
-            shutil.copy2(src, data_file())
+            with file_lock(data_file()):
+                make_backup("prerestore")            # safety snapshot of current data
+                shutil.copy2(src, data_file())
             return self._send(200, {"ok": True, "restored": name})
         if parsed.path == "/api/fetch-goal-price":
             if not GEMINI_API_KEY:
@@ -549,6 +592,19 @@ def port_in_use(port):
         s.close()
 
 
+def app_already_running(port, data_dir):
+    """True if *this* app is already serving *the same data dir* on `port`, so we
+    open it instead of starting a second writer. A second instance on a different
+    data dir (e.g. --demo / --data-dir) is allowed and won't match here."""
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/api/ping" % port, timeout=0.5) as r:
+            info = json.loads(r.read().decode())
+        return (info.get("app") == REGISTRY_KEY
+                and info.get("dataDir") == os.path.abspath(data_dir))
+    except Exception:
+        return False
+
+
 def _find_ports_file(start_dir):
     d = os.path.abspath(start_dir)
     for _ in range(MAX_SEARCH_DEPTH):
@@ -569,15 +625,22 @@ def get_registered_port():
                 return json.load(f)["registry"][REGISTRY_KEY]["port"]
         except Exception:
             pass
-    return DEFAULT_PORT
+    return None   # not registered — caller must supply --port
 
 
 def main():
     global DATA_DIR
     ap = argparse.ArgumentParser(description="Family Finance local server")
-    ap.add_argument("--port", type=int, default=get_registered_port())
+    ap.add_argument("--port", type=int, default=None,
+                    help="Port to bind. Defaults to this app's entry in ports.json; "
+                         "required if there is no registry entry.")
     ap.add_argument("--data-dir", default=DEFAULT_DATA_DIR)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="Host/IP to bind to. Default 127.0.0.1 keeps it on this "
+                         "machine only. 0.0.0.0 exposes finances.json to anyone who "
+                         "can reach this host on the LAN/VPN — there is no auth, so "
+                         "only do this on a network you fully trust.")
     ap.add_argument("--demo", action="store_true",
                     help="Run on a throwaway demo dataset in demo-data/ (seeded from "
                          "samples/), leaving your real data/ folder completely untouched")
@@ -593,23 +656,28 @@ def main():
         DATA_DIR = os.path.abspath(args.data_dir)
     ensure_data(seed)
 
-    port = args.port
-    httpd = None
-    for _ in range(MAX_PORT_TRIES):
-        if port_in_use(port):
-            print("  Port %d is busy — trying %d" % (port, port + 1))
-            port += 1
-            continue
-        try:
-            httpd = FFServer(("127.0.0.1", port), Handler)
-            break
-        except OSError:
-            port += 1
-    if httpd is None:
-        print("Could not find a free port (tried %d-%d)." % (args.port, port))
+    port = args.port if args.port is not None else get_registered_port()
+    if port is None:
+        print("No port configured for family-finance-app. Add it to ports.json "
+              "or pass --port <N>.")
         sys.exit(1)
 
-    url = "http://127.0.0.1:%d" % port
+    if app_already_running(port, DATA_DIR):
+        url = "http://127.0.0.1:%d" % port
+        print("Family Finance is already running on this data => " + url)
+        print("Opening the existing instance (not starting a second one).")
+        if not args.no_browser:
+            webbrowser.open(url)
+        sys.exit(0)
+
+    try:
+        httpd = FFServer((args.host, port), Handler)
+    except OSError as e:
+        print("Port %d is unavailable — another application is using it (%s)." % (port, e))
+        sys.exit(1)
+
+    display_host = "100.90.58.116" if args.host == "0.0.0.0" else args.host
+    url = "http://%s:%d" % (display_host, port)
     print("=" * 52)
     print("  Family Finance" + ("  [DEMO MODE]" if args.demo else ""))
     print("  App:  " + url)
@@ -618,6 +686,9 @@ def main():
         print("  Demo sandbox — your real data/ folder is untouched.")
         print("  Reset the demo anytime by deleting: " + DATA_DIR)
     print("  Press Ctrl+C to stop.")
+    if args.host not in ("127.0.0.1", "localhost"):
+        print("  ⚠  Bound to %s — finances.json is reachable by other devices on" % args.host)
+        print("     this network (no auth). Use only on a network you trust.")
     print("=" * 52)
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

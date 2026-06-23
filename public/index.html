@@ -18,12 +18,16 @@
       <button data-page="investments"><span class="ni">&#10548;</span>Monthly Investments</button>
       <button data-page="portfolio"><span class="ni">&#9670;</span>Portfolio</button>
       <button data-page="loans"><span class="ni">&#9878;</span>Loans</button>
+      <button data-page="lending"><span class="ni">&#8644;</span>Lending</button>
       <button data-page="goals"><span class="ni">&#9873;</span>Goals</button>
       <button data-page="cards"><span class="ni">&#9646;</span>Cards</button>
       <button data-page="documents"><span class="ni">&#128206;</span>Documents</button>
       <button data-page="settings"><span class="ni">&#9881;</span>Settings</button>
     </nav>
     <div class="sidebar-foot">
+      <button id="toggleValues" class="hide-values-btn" onclick="toggleHideValues()" title="Click to hide all values">
+        <span class="ni">&#128065;</span><span class="hv-label">Hide values</span>
+      </button>
       <div id="saveStatus" class="save-status">All changes saved</div>
       <div id="lastUpdated" class="muted small"></div>
     </div>
