@@ -4,11 +4,25 @@ CLAUDE.local.md
 # Personal financial data - NEVER commit this
 data/
 
+# Broker statements dropped for import (investments module) - personal data
+imports/*
+!imports/README.md
+
+# Secrets (Gemini key, broker API keys) - NEVER commit; ship .env.example instead
+.env
+
+# Optional local virtualenv for the investments extras (requirements-invest.txt)
+.venv/
+
 # Throwaway demo sandbox (server --demo seeds this from samples/) - never commit
 demo-data/
 
 # Claude Code local config (permissions, preview config — machine-specific)
 .claude/
+
+# E2E screenshots — regenerable artifacts; may capture whatever data the driven
+# server holds, so never commit them
+tools/e2e/shots/
 
 # OS / editor noise
 .DS_Store

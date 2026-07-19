@@ -1,0 +1,1616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Finance — Investments</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%234ade80'/><stop offset='.55' stop-color='%2316a34a'/><stop offset='1' stop-color='%23107a37'/></linearGradient></defs><rect width='64' height='64' rx='15' fill='url(%23g)'/><rect x='1.5' y='1.5' width='61' height='61' rx='13.5' fill='none' stroke='white' stroke-opacity='.25' stroke-width='1.5'/><path d='M17 40 L28 30 L36 37 L48 22' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/><path d='M40 22 L48 22 L48 30' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<script>
+// Runs before body renders (blocking, before CSSOM paint) so there's no flash of the
+// full standalone chrome when loaded inside the main app's Live Investments tab.
+// embed=1 covers the normal iframe case; window.self!==window.top is a defensive
+// fallback for any future embedding that forgets the query param.
+(function () {
+  var embedded = new URLSearchParams(location.search).get("embed") === "1" || window.self !== window.top;
+  if (embedded) document.documentElement.setAttribute("data-embed", "1");
+})();
+</script>
+<script src="theme.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f6fb;
+    --bg-grad-1: #eef1f9;
+    --bg-grad-2: #f7f5ff;
+    --surface: rgba(255,255,255,.72);
+    --surface-solid: #ffffff;
+    --border: rgba(15,23,42,.10);
+    --border-strong: rgba(15,23,42,.16);
+    --text: #0f172a;
+    --muted: #64748b;
+    --faint: #94a3b8;
+    --accent: #6366f1;
+    --accent-2: #8b5cf6;
+    --accent-3: #06b6d4;
+    --pos: #16a34a;
+    --neg: #dc2626;
+    --shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.06);
+    --shadow-lg: 0 4px 12px rgba(15,23,42,.08), 0 24px 48px rgba(15,23,42,.10);
+    --radius: 18px;
+    --radius-sm: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* dark palette — applied when the system prefers dark (unless the user forced
+     light) or when the user's toggle forces dark */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a0e1a; --bg-grad-1: #0d1120; --bg-grad-2: #120e22;
+      --surface: rgba(23,29,45,.60); --surface-solid: #161c2d;
+      --border: rgba(148,163,184,.14); --border-strong: rgba(148,163,184,.24);
+      --text: #e8ecf5; --muted: #94a3b8; --faint: #64748b;
+      --pos: #4ade80; --neg: #f87171;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,.4), 0 24px 48px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0e1a; --bg-grad-1: #0d1120; --bg-grad-2: #120e22;
+    --surface: rgba(23,29,45,.60); --surface-solid: #161c2d;
+    --border: rgba(148,163,184,.14); --border-strong: rgba(148,163,184,.24);
+    --text: #e8ecf5; --muted: #94a3b8; --faint: #64748b;
+    --pos: #4ade80; --neg: #f87171;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,.4), 0 24px 48px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 800px at 12% -10%, var(--bg-grad-2), transparent 55%),
+      radial-gradient(1000px 700px at 100% 0%, var(--bg-grad-1), transparent 50%),
+      var(--bg);
+    background-attachment: fixed;
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: clamp(1rem, 3vw, 2.4rem) clamp(1rem, 3vw, 2rem) 4rem; }
+
+  /* ---- top bar ---- */
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.6rem; }
+  .brand { display: flex; align-items: center; gap: .7rem; font-weight: 700; letter-spacing: -.02em; font-size: 1.05rem; }
+  .brand .logo {
+    width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2) 55%, var(--accent-3));
+    color: #fff; font-size: 1.1rem; box-shadow: 0 4px 14px rgba(99,102,241,.45);
+  }
+  .brand small { display: block; font-weight: 500; font-size: .72rem; color: var(--muted); letter-spacing: 0; }
+  .theme-toggle {
+    font: inherit; cursor: pointer; border: 1px solid var(--border-strong); background: var(--surface);
+    color: var(--text); width: 38px; height: 38px; border-radius: 11px; font-size: 1rem; backdrop-filter: blur(12px);
+    transition: transform .15s, background .2s;
+  }
+  .theme-toggle:hover { transform: translateY(-1px); }
+
+  /* ---- hero ---- */
+  .hero {
+    position: relative; overflow: hidden; border-radius: var(--radius);
+    padding: clamp(1.4rem, 3vw, 2.2rem); margin-bottom: 1.4rem;
+    background:
+      linear-gradient(135deg, rgba(99,102,241,.16), rgba(139,92,246,.10) 45%, rgba(6,182,212,.12)),
+      var(--surface);
+    border: 1px solid var(--border); box-shadow: var(--shadow-lg); backdrop-filter: blur(16px);
+  }
+  .hero::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(600px 200px at 90% -40%, rgba(139,92,246,.28), transparent 70%);
+  }
+  .hero .label { font-size: .78rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 600; }
+  .hero .total { font-size: clamp(2.2rem, 6vw, 3.4rem); font-weight: 800; letter-spacing: -.03em; margin: .2rem 0 .1rem; line-height: 1; }
+  .hero .sub { color: var(--muted); font-size: .9rem; }
+  .hero .sub b { color: var(--text); font-weight: 600; }
+
+  .alloc { margin-top: 1.3rem; }
+  .alloc-bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--border); }
+  .alloc-bar > span { transition: width .6s cubic-bezier(.4,0,.2,1); }
+  .alloc-legend { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; margin-top: .8rem; }
+  .alloc-legend .item { display: flex; align-items: center; gap: .45rem; font-size: .82rem; color: var(--muted); }
+  .alloc-legend .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .alloc-legend .item b { color: var(--text); font-weight: 600; }
+  .alloc-legend .item span.pct { color: var(--faint); font-variant-numeric: tabular-nums; }
+
+  /* ---- section cards ---- */
+  .section {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(16px);
+    padding: clamp(1rem, 2vw, 1.4rem) clamp(1rem, 2vw, 1.5rem); margin-bottom: 1.2rem;
+  }
+  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .head-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .section-head h2 { font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; margin: 0; display: flex; align-items: center; gap: .55rem; }
+  .section-head .ico { font-size: 1.05rem; opacity: .9; }
+  .section-desc { color: var(--muted); font-size: .84rem; margin: -.4rem 0 1rem; }
+
+  /* ---- tables ---- */
+  .t-scroll { overflow-x: auto; margin: 0 -.4rem; padding: 0 .4rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  thead th {
+    text-align: left; padding: .55rem .7rem; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--faint); font-weight: 600; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td { padding: .68rem .7rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: rgba(99,102,241,.055); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .sym { font-weight: 600; letter-spacing: -.01em; }
+  .pos { color: var(--pos); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .neg { color: var(--neg); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .faint { color: var(--faint); font-size: .82rem; }
+
+  /* account identity cell */
+  .acct { display: flex; align-items: center; gap: .6rem; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center;
+    font-size: .78rem; font-weight: 700; color: #fff; letter-spacing: -.02em;
+  }
+  .acct .meta { line-height: 1.2; }
+  .acct .meta small { color: var(--faint); font-size: .72rem; }
+
+  /* pills / badges */
+  .pill { padding: .18rem .6rem; border-radius: 999px; font-size: .74rem; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+  .pill.APPLY { background: rgba(22,163,74,.16); color: var(--pos); }
+  .pill.SKIP  { background: rgba(220,38,38,.16); color: var(--neg); }
+  .pill.NEUTRAL { background: rgba(100,116,139,.18); color: var(--muted); }
+  .pill.CAUTION { background: rgba(217,119,6,.18); color: #d97706; }
+  @media (prefers-color-scheme: dark) { .pill.CAUTION { color: #fbbf24; } }
+
+  .badge { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .55rem; border-radius: 8px; font-size: .76rem; font-weight: 600; }
+  .badge.ok { background: rgba(22,163,74,.14); color: var(--pos); }
+  .badge.stale { background: rgba(100,116,139,.16); color: var(--muted); }
+  .badge.off { background: rgba(220,38,38,.13); color: var(--neg); }
+  .badge .dotmini { width: 7px; height: 7px; border-radius: 999px; background: currentColor; }
+  .badge.ok .dotmini { box-shadow: 0 0 0 3px rgba(22,163,74,.18); }
+
+  .chip { display: inline-block; padding: .1rem .5rem; border-radius: 7px; font-size: .74rem; font-weight: 600;
+    background: rgba(99,102,241,.12); color: var(--accent); }
+  @media (prefers-color-scheme: dark) { .chip { color: #a5b4fc; } }
+
+  /* buttons / inputs */
+  button, .btn {
+    font: inherit; font-weight: 600; font-size: .84rem; padding: .42rem .85rem; border-radius: 10px;
+    border: 1px solid var(--border-strong); background: var(--surface-solid); cursor: pointer;
+    color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: .4rem;
+    transition: transform .12s, box-shadow .2s, background .2s, opacity .2s; white-space: nowrap;
+  }
+  button:hover, .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+  button:disabled { opacity: .55; cursor: default; transform: none; box-shadow: none; }
+  .btn-primary, button.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent;
+    box-shadow: 0 4px 14px rgba(99,102,241,.35);
+  }
+  .btn-primary:hover, button.primary:hover { box-shadow: 0 6px 20px rgba(99,102,241,.5); }
+
+  form.inline { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: 1rem 0 0; }
+  input, select {
+    font: inherit; font-size: .86rem; padding: .45rem .6rem; border-radius: 10px;
+    border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text);
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.2); }
+  input[type=number] { width: 6rem; }
+  input::placeholder { color: var(--faint); }
+
+  .empty { color: var(--muted); font-size: .86rem; padding: .6rem .2rem; text-align: center; }
+
+  #toast {
+    position: fixed; bottom: 1.4rem; right: 1.4rem; padding: .8rem 1.1rem; border-radius: 12px;
+    background: var(--surface-solid); color: var(--text); border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-lg); opacity: 0; transform: translateY(10px); pointer-events: none;
+    transition: opacity .28s, transform .28s; font-size: .86rem; font-weight: 500; max-width: 22rem;
+    border-left: 4px solid var(--accent);
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.ok { border-left-color: var(--pos); }
+  #toast.err { border-left-color: var(--neg); }
+
+  .skeleton { color: var(--faint); font-size: .86rem; padding: .5rem .2rem; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  tbody tr, .card-in { animation: fadein .35s ease both; }
+
+  /* ---- stat tiles ---- */
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: .7rem; margin-bottom: 1.2rem; }
+  .stat { background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .7rem .8rem; }
+  .stat .k { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; }
+  .stat .v { font-size: 1.35rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: .15rem; line-height: 1.1; }
+  .stat .v small { font-size: .72rem; font-weight: 600; color: var(--faint); }
+
+  /* ---- filter controls ---- */
+  .filters { display: flex; gap: 1.1rem; flex-wrap: wrap; align-items: center; margin-bottom: 1.1rem; }
+  .filters label { font-size: .78rem; color: var(--muted); display: inline-flex; gap: .45rem; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; background: var(--surface-solid); padding: .34rem .72rem; font-size: .78rem; box-shadow: none; }
+  .seg button:hover { transform: none; box-shadow: none; }
+  .seg button.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
+
+  /* ---- "show more" footer buttons (paged tables) ---- */
+  .more-btn {
+    font-size: .78rem; font-weight: 600; padding: .38rem 1rem; border-radius: 999px;
+    border: 1px solid var(--border-strong); background: transparent; color: var(--muted);
+    box-shadow: none;
+  }
+  .more-btn:hover { color: var(--text); border-color: var(--accent); box-shadow: none; background: var(--surface-solid); }
+
+  /* ---- charts ---- */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.2rem; margin-bottom: 1.3rem; }
+  figure { margin: 0; }
+  figcaption { font-size: .8rem; color: var(--muted); font-weight: 600; margin-bottom: .5rem; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart .axis { stroke: var(--border-strong); }
+  .chart .grid { stroke: var(--border); stroke-dasharray: 2 3; }
+  .chart .lbl { fill: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .chart .name { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .chart .mark { transition: opacity .15s; cursor: pointer; }
+  .chart:hover .mark.dim { opacity: .28; }
+  .chart-legend { display: flex; gap: 1rem; margin-top: .5rem; font-size: .78rem; color: var(--muted); }
+  .chart-legend .item { display: inline-flex; align-items: center; gap: .38rem; }
+  .chart-legend .dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .chart-empty { color: var(--faint); font-size: .82rem; padding: 1.4rem .2rem; text-align: center; }
+
+  #chart-tip {
+    position: fixed; z-index: 20; pointer-events: none; opacity: 0; transform: translateY(4px);
+    background: var(--surface-solid); color: var(--text); border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-lg); border-radius: 9px; padding: .45rem .6rem; font-size: .78rem;
+    transition: opacity .12s, transform .12s; max-width: 15rem; line-height: 1.35;
+  }
+  #chart-tip.show { opacity: 1; transform: translateY(0); }
+  #chart-tip b { font-variant-numeric: tabular-nums; }
+
+  /* ---- embed mode: read inside the main app's Live Investments tab as a pane,
+     not a standalone page ---- */
+  :root[data-embed="1"] .back-link { display: none; }
+  :root[data-embed="1"] .wrap { padding: .7rem .9rem 2rem; max-width: none; }
+  :root[data-embed="1"] .topbar { margin-bottom: 1rem; }
+
+  /* ---- owner select (Accounts section) ---- */
+  .owner-select { font-size: .82rem; padding: .3rem .5rem; min-width: 9rem; }
+  .owner-tag { font-size: .74rem; color: var(--muted); font-weight: 500; }
+
+  /* ---- onboarding (zero-accounts state) + add-account ---- */
+  .paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .9rem; margin: 1.3rem 0 .8rem; }
+  .path-card {
+    text-align: left; padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+    background: var(--surface-solid); cursor: pointer; display: block; text-decoration: none; color: var(--text);
+    transition: transform .12s, box-shadow .2s, border-color .2s;
+  }
+  .path-card:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
+  .path-card .pc-ico { font-size: 1.5rem; }
+  .path-card .pc-title { font-weight: 700; margin: .35rem 0 .2rem; }
+  .path-card .pc-desc { font-size: .82rem; color: var(--muted); }
+  .envbox {
+    margin-top: 1rem; padding: 1rem 1.1rem; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong); background: rgba(99,102,241,.06); font-size: .86rem;
+  }
+  .envbox .envbox-title { font-weight: 700; margin-bottom: .5rem; }
+  .envbox p { margin: .5rem 0 .3rem; }
+  .envbox code {
+    background: var(--surface-solid); border: 1px solid var(--border); border-radius: 6px;
+    padding: .12rem .4rem; font-size: .82rem; word-break: break-all;
+  }
+  .envbox code.copyable { display: inline-block; margin: .25rem 0; }
+  .envbox ul { margin: .3rem 0 .5rem 1.1rem; padding: 0; }
+  .envbox li { margin: .22rem 0; }
+  .mini-btn { padding: .24rem .5rem; font-size: .82rem; box-shadow: none; }
+
+  /* ---- manual-holdings editor modal ---- */
+  #holdings-overlay { position: fixed; inset: 0; z-index: 40; background: rgba(15,23,42,.5);
+    display: grid; place-items: center; padding: 1rem; backdrop-filter: blur(2px); }
+  #holdings-overlay[hidden] { display: none; }
+  #holdings-modal { background: var(--surface-solid); border: 1px solid var(--border-strong);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg); width: min(700px, 96vw);
+    max-height: 90vh; overflow: auto; padding: 1.2rem 1.3rem 1.3rem; animation: fadein .2s ease both; }
+  .hm-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .3rem; }
+  .hm-head h3 { margin: 0; font-size: 1.05rem; font-weight: 700; }
+  .hm-actions { display: flex; align-items: center; gap: .5rem; margin-top: 1rem; flex-wrap: wrap; }
+  #hm-table input { width: 100%; }
+  #hm-table td { padding: .4rem; vertical-align: middle; }
+  #hm-table .hm-sym { min-width: 7rem; }
+  #hm-table input[type=number] { width: 100%; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <span class="logo">₹</span>
+      <span>Investments<small>all accounts · one view</small></span>
+    </div>
+    <a href="/" class="back-link" style="margin-left:auto;margin-right:.6rem;font-size:.85rem;text-decoration:none;opacity:.75">← Family Finance</a>
+    <button class="theme-toggle" id="hideToggle" title="Click to hide all values" aria-label="Toggle value visibility">👁</button>
+    <button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </div>
+
+  <!-- onboarding: shown only when there are zero accounts -->
+  <section class="hero card-in" id="onboarding" hidden>
+    <div class="label">Welcome</div>
+    <div class="total" style="font-size:clamp(1.6rem,4vw,2.4rem)">Set up your investments</div>
+    <div class="sub">No accounts yet — pick how you'd like to start. You can mix and match later.</div>
+    <div class="paths">
+      <a class="path-card" onclick="startAddAccount('kite')">
+        <div class="pc-ico">🔑</div>
+        <div class="pc-title">Connect a broker</div>
+        <div class="pc-desc">Zerodha Kite or Upstox — live holdings sync via the broker API.</div>
+      </a>
+      <a class="path-card" onclick="startAddAccount('wint')">
+        <div class="pc-ico">📄</div>
+        <div class="pc-title">Import statements</div>
+        <div class="pc-desc">Add an account, then import a broker CSV or a Wint Wealth xlsx from imports/.</div>
+      </a>
+      <a class="path-card" onclick="startAddAccount('manual')">
+        <div class="pc-ico">✍️</div>
+        <div class="pc-title">Track manually</div>
+        <div class="pc-desc">Type in holdings yourself — no broker connection needed.</div>
+      </a>
+    </div>
+    <div class="sub faint">Adding an account creates it in the Accounts list below; broker accounts then show the exact .env keys and redirect URL to register.</div>
+  </section>
+
+  <!-- hero: net worth + allocation -->
+  <section class="hero card-in" id="valueHero">
+    <div class="label">Total portfolio value</div>
+    <div class="total" id="heroTotal">—</div>
+    <div class="sub" id="heroSub">Loading your accounts…</div>
+    <div class="alloc" id="alloc" hidden>
+      <div class="alloc-bar" id="allocBar"></div>
+      <div class="alloc-legend" id="allocLegend"></div>
+    </div>
+  </section>
+
+  <!-- broker sync -->
+  <section class="section card-in">
+    <div class="section-head">
+      <h2><span class="ico">🔑</span> Broker sync</h2>
+    </div>
+    <p class="section-desc">Tokens expire nightly — one login click per broker account each morning refreshes everything.</p>
+    <p class="empty" id="tokens-empty" hidden>No broker (Kite/Upstox) accounts yet — add one in the Accounts section below.</p>
+    <div class="t-scroll">
+      <table id="tokens"><thead><tr>
+        <th>Account</th><th>Credentials</th><th>Token today</th><th></th>
+      </tr></thead><tbody><tr><td colspan="4" class="skeleton">Loading…</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <!-- IPOs -->
+  <section class="section card-in">
+    <div class="section-head">
+      <h2><span class="ico">🚀</span> IPOs needing a decision</h2>
+      <div class="head-actions">
+        <button class="primary" onclick="refreshIposUpstox(this)" title="Uses your Upstox API — adds exchange symbols, more reliable">↻ From Upstox</button>
+        <button class="primary" onclick="refreshIpos(this)" title="NSE public data — adds the QIB/NII/retail split">↻ From NSE</button>
+      </div>
+    </div>
+    <p class="section-desc">Sorted soonest-to-close first. Use the filters to zero in — by Chittorgarh-style call, whether it’s closing this week, or the ones you’ve applied for.</p>
+
+    <p class="empty" id="ipos-empty" hidden>No open IPOs tracked — hit “Refresh from NSE” or add one below.</p>
+
+    <div id="ipos-body" hidden>
+      <div class="stat-row" id="ipos-stats"></div>
+
+      <div class="filters">
+        <label>Search <input id="f-ipo-q" type="search" placeholder="IPO name…" style="width:11rem"></label>
+        <div class="seg" id="f-ipo-call">
+          <button data-v="all" class="active">All</button>
+          <button data-v="APPLY">Apply</button>
+          <button data-v="NEUTRAL">Neutral</button>
+          <button data-v="CAUTION">Caution</button>
+          <button data-v="SKIP">Skip</button>
+        </div>
+        <div class="seg" id="f-ipo-timing">
+          <button data-v="all" class="active">All</button>
+          <button data-v="soon">⏰ Closing soon</button>
+          <button data-v="applied">🎟️ Applied</button>
+        </div>
+      </div>
+
+      <div class="t-scroll">
+        <table id="ipos"><thead><tr>
+          <th>IPO</th><th>Closes</th><th class="num">Total ×</th><th class="num">QIB ×</th>
+          <th class="num">Retail ×</th><th class="num">GMP</th><th>Call</th><th>Why</th>
+        </tr></thead><tbody></tbody></table>
+        <p class="empty" id="ipos-filtered-empty" hidden>No IPOs match these filters.</p>
+      </div>
+
+      <div id="ipos-more" hidden style="text-align:center;margin-top:.8rem">
+        <button class="more-btn" onclick="toggleIpoCap()">Show more</button>
+      </div>
+    </div>
+    <form class="inline" id="ipo-form">
+      <input name="name" placeholder="IPO name" required>
+      <input name="close_date" type="date" required>
+      <input name="sub_total" type="number" step="0.1" placeholder="Total ×">
+      <input name="sub_qib" type="number" step="0.1" placeholder="QIB ×">
+      <input name="sub_nii" type="number" step="0.1" placeholder="NII ×">
+      <input name="sub_retail" type="number" step="0.1" placeholder="Retail ×">
+      <input name="gmp" type="number" step="1" placeholder="GMP ₹">
+      <button class="primary">＋ Add / update IPO</button>
+    </form>
+  </section>
+
+  <!-- IPO applications: did I get allotted + listing-day P&L -->
+  <section class="section card-in">
+    <div class="section-head">
+      <h2><span class="ico">🎟️</span> My IPO applications</h2>
+    </div>
+    <p class="section-desc">Mark the IPOs you applied for. Once shares are allotted they show up in your holdings, so this tells you whether you got it and — on listing day — what you paid (allotment price) vs the current price. We never place the bid; this is tracking &amp; reminders only.</p>
+
+    <p class="empty" id="allot-empty" hidden>No IPO applications marked yet — mark one below.</p>
+    <div class="t-scroll" id="allot-body" hidden>
+      <table id="allot"><thead><tr>
+        <th>IPO</th><th>Symbol</th><th>Status</th><th class="num">Got for ₹</th>
+        <th class="num">Now ₹</th><th class="num">Listing-day gain</th><th>Allotment / listing</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <form class="inline" id="applied-form">
+      <input name="name" placeholder="IPO name (as tracked above)" list="tracked-ipo-names" required>
+      <datalist id="tracked-ipo-names"></datalist>
+      <input name="symbol" placeholder="Symbol (e.g. XYZ)">
+      <label class="mini">Allotment <input name="allotment_date" type="date"></label>
+      <label class="mini">Listing <input name="listing_date" type="date"></label>
+      <button class="primary">＋ Mark applied</button>
+    </form>
+  </section>
+
+  <!-- IPO listing history -->
+  <section class="section card-in">
+    <div class="section-head">
+      <h2><span class="ico">📈</span> IPO listing history</h2>
+      <button class="primary" onclick="refreshIpoHistory(this)" title="NSE list + Chittorgarh listing prices &amp; subscription + your tracked IPOs">↻ Rebuild history</button>
+    </div>
+    <p class="section-desc">How past IPOs were subscribed and how they listed (issue → listing price → listing gain). NSE supplies the list; Chittorgarh fills the actual listing-day price and QIB/NII/retail subscription; and IPOs tracked above fold in after they list.</p>
+
+    <p class="empty" id="ipohist-empty" hidden>No past IPOs yet — hit “Rebuild from NSE”, or import a CSV below.</p>
+
+    <div id="ipohist-body" hidden>
+      <div class="stat-row" id="ipohist-stats"></div>
+
+      <div class="filters">
+        <label>Search <input id="f-hist-q" type="search" placeholder="IPO name…" style="width:11rem"></label>
+        <label>Year <select id="f-year"></select></label>
+        <div class="seg" id="f-segment">
+          <button data-v="all" class="active">All</button>
+          <button data-v="Mainboard">Mainboard</button>
+          <button data-v="SME">SME</button>
+        </div>
+        <div class="seg" id="f-outcome">
+          <button data-v="all" class="active">All</button>
+          <button data-v="gain">Gainers</button>
+          <button data-v="loss">Losers</button>
+        </div>
+      </div>
+
+      <div class="charts">
+        <figure>
+          <figcaption>Average listing gain by year</figcaption>
+          <div class="chart" id="chart-year"></div>
+        </figure>
+        <figure>
+          <figcaption>Subscription vs listing gain</figcaption>
+          <div class="chart" id="chart-scatter"></div>
+          <div class="chart-legend">
+            <span class="item"><span class="dot" style="background:#6366f1"></span>Mainboard</span>
+            <span class="item"><span class="dot" style="background:#f59e0b"></span>SME</span>
+          </div>
+        </figure>
+      </div>
+
+      <div class="t-scroll">
+        <table id="ipohist"><thead><tr>
+          <th>IPO</th><th>Segment</th><th>Listed</th><th class="num">Issue ₹</th>
+          <th class="num" title="Closing price on listing day (Chittorgarh)">Listing ₹</th>
+          <th class="num" title="Issue price → listing-day close">Listing gain</th><th class="num">Subscribed</th>
+        </tr></thead><tbody></tbody></table>
+        <p class="empty" id="ipohist-filtered-empty" hidden>No IPOs match these filters.</p>
+      </div>
+
+      <div id="ipohist-more" hidden style="text-align:center;margin-top:.8rem">
+        <button class="more-btn" onclick="toggleHistCap()">Show more</button>
+      </div>
+    </div>
+
+    <form class="inline" id="ipohist-import-form">
+      <select name="file" id="ipohist-files"></select>
+      <button>⬆ Import IPO-history CSV</button>
+      <span class="faint">columns like Company · Issue Price · Listing Price · Subscription (drop CSV in imports/)</span>
+    </form>
+  </section>
+
+  <!-- bonds -->
+  <section class="section card-in" id="bonds-section">
+    <div class="section-head">
+      <h2><span class="ico">📜</span> Bonds — what you get back, and when</h2>
+    </div>
+    <p class="section-desc">Every bond's full cash journey (after TDS): what you put in, what has already landed in the bank, what is still to come, and the final total you'll have received by maturity. Bars are coloured by how the principal comes back — <b>staggered</b> (returned in instalments) vs <b>at maturity</b> (one lump sum at the end).</p>
+
+    <p class="empty" id="bonds-empty" hidden>No bonds imported yet — import a Wint Wealth <b>Holding Statement</b> below to see them here.</p>
+
+    <div id="bonds-body" hidden>
+      <div class="stat-row" id="bonds-stats"></div>
+
+      <div class="filters">
+        <label>Account <select id="f-bond-account"></select></label>
+        <div class="seg" id="f-repay">
+          <button data-v="all" class="active">All</button>
+          <button data-v="Staggered">Staggered</button>
+          <button data-v="At maturity">At maturity</button>
+        </div>
+      </div>
+
+      <div class="charts">
+        <figure>
+          <figcaption>Money back per bond — received vs still to come</figcaption>
+          <div class="chart" id="chart-bond-cashflow"></div>
+          <div class="chart-legend">
+            <span class="item"><span class="dot" style="background:var(--muted)"></span>Received (in bank)</span>
+            <span class="item"><span class="dot" style="background:var(--muted);opacity:.4"></span>Still to come</span>
+            <span class="item"><span class="dot" style="width:2px;height:11px;border-radius:1px;background:var(--faint)"></span>What you invested</span>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>By repayment style — how principal returns</figcaption>
+          <div class="chart" id="chart-repay"></div>
+          <div class="chart-legend">
+            <span class="item"><span class="dot" style="background:#6366f1"></span>Staggered</span>
+            <span class="item"><span class="dot" style="background:#f59e0b"></span>At maturity</span>
+          </div>
+        </figure>
+      </div>
+
+      <div class="t-scroll">
+        <table id="bonds"><thead><tr>
+          <th>Account</th><th>Bond</th><th>Bought</th><th>Matures</th><th class="num">Invested</th>
+          <th class="num">Received so far</th><th class="num">Still to come</th>
+          <th class="num">Final total</th><th class="num">Net gain</th><th>Next payment</th>
+        </tr></thead><tbody></tbody></table>
+        <p class="empty" id="bonds-filtered-empty" hidden>No bonds match these filters.</p>
+      </div>
+
+      <div id="bonds-more" hidden style="text-align:center;margin-top:.8rem">
+        <button class="more-btn" onclick="toggleBondCap()">Show more</button>
+      </div>
+    </div>
+
+    <form class="inline" id="wint-import-form">
+      <select name="account" id="wint-import-account"></select>
+      <select name="holding_file" id="wint-holding-files"></select>
+      <select name="cashflow_file" id="wint-cashflow-files"><option value="">no cashflow file</option></select>
+      <select name="summary_file" id="wint-summary-files"><option value="">no purchase-date file</option></select>
+      <button class="primary">⬆ Import Wint statement</button>
+      <span class="faint">Tip: pick the <b>master workbook</b> as the statement file — it carries cashflows <i>and</i> purchase dates, so the other two can stay empty. (All files live in imports/.)</span>
+    </form>
+  </section>
+
+  <!-- signals -->
+  <section class="section card-in">
+    <div class="section-head">
+      <h2><span class="ico">⚑</span> Positions flagged for review</h2>
+    </div>
+    <div class="t-scroll">
+      <table id="signals"><thead><tr>
+        <th>Account</th><th>Symbol</th><th class="num">Value</th><th class="num">P&amp;L %</th><th>Why review</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <p class="empty" id="signals-empty" hidden>Nothing flagged — or no holdings synced yet.</p>
+  </section>
+
+  <!-- accounts -->
+  <section class="section card-in" id="add-account-section">
+    <div class="section-head">
+      <h2><span class="ico">🏦</span> Accounts</h2>
+    </div>
+    <p class="empty" id="accounts-empty" hidden>No accounts yet — add your first one below.</p>
+    <div class="t-scroll">
+      <table id="accounts"><thead><tr>
+        <th>Account</th><th>Broker</th><th>Asset class</th><th>Owner</th><th class="num">Value</th><th>Data as of</th><th>Source</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <p class="section-desc" style="margin:1.1rem 0 0">Add an account — pick the type, give it a short id (e.g. <code>kite-1</code>, max 40 characters), an optional label and owner.</p>
+    <form class="inline" id="add-account-form">
+      <select name="broker_type" id="add-broker-type">
+        <option value="kite">Zerodha Kite — broker API</option>
+        <option value="upstox">Upstox — broker API</option>
+        <option value="coin">Coin (Zerodha MF) — rides a Kite login</option>
+        <option value="wint">Wint Wealth — bond xlsx import</option>
+        <option value="smallcase">smallcase — managed baskets</option>
+        <option value="manual">Manual — type holdings in</option>
+      </select>
+      <input name="id" id="add-id" placeholder="kite-1" required maxlength="40">
+      <input name="label" id="add-label" placeholder="Label (optional)">
+      <input name="owner" id="add-owner" list="owner-suggestions" placeholder="Owner (optional)">
+      <datalist id="owner-suggestions"></datalist>
+      <button class="primary">＋ Add account</button>
+    </form>
+    <div id="add-account-info" class="envbox" hidden></div>
+
+    <form class="inline" id="import-form">
+      <select name="file" id="import-files"></select>
+      <select name="account" id="import-account"></select>
+      <button>⬆ Import CSV</button>
+      <span class="faint">columns like Symbol · Quantity · Avg Price · Last Price (broker aliases such as Instrument / Qty / LTP accepted; drop CSV in imports/)</span>
+    </form>
+    <p class="faint">Bond (Wint Wealth) statements import from the <a href="#bonds-section" style="color:var(--accent)">Bonds section →</a></p>
+  </section>
+
+</div>
+
+<div id="toast"></div>
+<div id="chart-tip"></div>
+
+<!-- manual-holdings editor (opened from a manual/no-broker account's ＋ Holdings button) -->
+<div id="holdings-overlay" hidden onclick="if(event.target===this)closeHoldings()">
+  <div id="holdings-modal" role="dialog" aria-modal="true" aria-labelledby="hm-title">
+    <div class="hm-head">
+      <h3 id="hm-title">Holdings</h3>
+      <button class="theme-toggle" onclick="closeHoldings()" aria-label="Close">✕</button>
+    </div>
+    <p class="section-desc">Type in each holding — symbol, quantity, average buy price and last price.
+      Value and gain are computed for you. Saving replaces this account's holdings.</p>
+    <div class="t-scroll">
+      <table id="hm-table"><thead><tr>
+        <th>Symbol</th><th class="num">Qty</th><th class="num">Avg price ₹</th><th class="num">Last price ₹</th><th></th>
+      </tr></thead><tbody id="hm-rows"></tbody></table>
+    </div>
+    <div class="hm-actions">
+      <button class="mini-btn" onclick="addHoldingRow()">＋ Add holding</button>
+      <div style="margin-left:auto;display:flex;gap:.5rem">
+        <button onclick="closeHoldings()">Cancel</button>
+        <button class="primary" onclick="saveHoldings()">Save holdings</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// same localStorage key + mask as the main app's hideValues (public/app.js fmtMoney) —
+// kept in sync so hiding values on either page hides them on both.
+let hideValues = localStorage.getItem("ffa_hideValues") === "1";
+// HTML-escape every dynamic/user/broker-supplied string before it goes into an
+// innerHTML template — mirrors public/app.js esc(). Account labels, IPO/company
+// names, symbols, owners, filenames etc. all flow through this so a crafted value
+// (typed, imported, or synced) renders as inert text, never live markup.
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const inr = v => hideValues ? "••••" : "₹" + Number(v).toLocaleString("en-IN", {maximumFractionDigits: 0});
+const prettyDate = iso => iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-IN", {day: "2-digit", month: "short", year: "numeric"}) : "—";
+const get = url => fetch(url).then(r => r.json());
+const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json"},
+  body: body ? JSON.stringify(body) : null}).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    return data;
+  });
+const del = url => fetch(url, {method: "DELETE"}).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    return data;
+  });
+
+// asset-class → colour (categorical, tasteful)
+const CLASS_COLORS = {
+  stocks: "#6366f1", mutual_funds: "#06b6d4", bonds: "#f59e0b",
+  managed_stocks: "#8b5cf6", other: "#64748b",
+};
+const classColor = c => CLASS_COLORS[c] || CLASS_COLORS.other;
+const prettyClass = c => c.replace(/_/g, " ");
+
+// account types with no live broker API and no dedicated importer — their holdings
+// are hand-entered via the manual-holdings editor (openHoldings), honouring the
+// "Track manually — type in holdings yourself" onboarding path.
+const MANUAL_TYPES = new Set(["manual", "smallcase"]);
+
+// stable colour + initials for an account avatar
+const AVATAR_COLORS = ["#6366f1", "#8b5cf6", "#06b6d4", "#f59e0b", "#ec4899", "#10b981", "#ef4444"];
+function avatarFor(label) {
+  let h = 0; for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const color = AVATAR_COLORS[h % AVATAR_COLORS.length];
+  const initials = label.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  return {color, initials};
+}
+
+let LABELS = {};  // id → display label, filled each render
+let OWNERS = {};   // id → owner name, filled each render
+let PERSONS = [];  // known person names, filled each render
+let ACCOUNTS_LIST = [];  // full account records, filled each render
+
+function acctCell(id, opts) {
+  const label = LABELS[id] || id;
+  const {color, initials} = avatarFor(label);
+  // owner is shown inline as a light-touch hint everywhere EXCEPT the Accounts section,
+  // which already has its own dedicated, editable Owner column (avoids showing it twice).
+  const owner = (opts && opts.showOwner === false) ? null : OWNERS[id];
+  return `<div class="acct">
+    <span class="avatar" style="background:${color}">${esc(initials)}</span>
+    <span class="meta">${esc(label)}${owner ? ` <span class="owner-tag">· ${esc(owner)}</span>` : ""}<br><small>${esc(id)}</small></span></div>`;
+}
+
+function toast(msg, kind = "ok") {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = "show " + kind;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.className = "", 4200);
+}
+
+// true when running inside the main app's Live Investments tab (set by the blocking
+// head script based on ?embed=1 / window.self!==window.top — see <head>)
+const isEmbedded = document.documentElement.hasAttribute("data-embed");
+// tell the parent app a sync completed, so it can re-fetch /api/data and pick up
+// freshly-synced liveSync portfolio rows (gold-price-fetch-style freshness)
+function notifyParentSynced() {
+  if (!isEmbedded) return;
+  try { window.parent.postMessage({type: "invest-synced"}, location.origin); } catch (e) { /* ignore */ }
+}
+
+// owner <select> for an Accounts-section row: known persons + current owner + "+ New person…"
+function ownerSelectHTML(a) {
+  const current = a.owner || "";
+  const names = current && !PERSONS.includes(current) ? [...PERSONS, current] : PERSONS;
+  const opts = names.map(p => `<option value="${esc(p)}"${p === current ? " selected" : ""}>${esc(p)}</option>`).join("");
+  return `<select class="owner-select" data-id="${esc(a.id)}" data-prev="${esc(current)}" onchange="onOwnerChange(this)">
+    <option value=""${!current ? " selected" : ""}>— unassigned —</option>
+    ${opts}
+    <option value="__new__">+ New person…</option>
+  </select>`;
+}
+async function onOwnerChange(sel) {
+  const id = sel.dataset.id;
+  let value = sel.value;
+  if (value === "__new__") {
+    const name = (prompt("New person's name:") || "").trim();
+    if (!name) { sel.value = sel.dataset.prev; return; }
+    value = name;
+  }
+  try {
+    await post(`/api/invest/accounts/${id}/owner`, {owner: value});
+    toast(`${LABELS[id] || id} owner set to ${value || "unassigned"}`);
+    await render();
+  } catch (e) {
+    toast(`Couldn't set owner: ${e.message}`, "err");
+    sel.value = sel.dataset.prev;
+  }
+}
+
+// ---- add / edit / delete accounts ----------------------------------------
+// The per-id .env var convention (matches investlib/brokers.py _env): the
+// account id, uppercased with hyphens -> underscores, then the suffix.
+function envVarNames(id, type) {
+  const P = id.toUpperCase().replace(/-/g, "_");
+  if (type === "kite")
+    return [`${P}_API_KEY`, `${P}_API_SECRET`,
+            `${P}_USER_ID  (headless morning refresh — optional)`,
+            `${P}_PASSWORD  (headless — optional)`,
+            `${P}_TOTP_SECRET  (headless — optional)`];
+  if (type === "upstox")
+    return [`${P}_API_KEY`, `${P}_API_SECRET`,
+            `${P}_ANALYTICS_TOKEN  (1-yr read-only token — optional, skips daily login)`];
+  return [];  // coin/wint/smallcase/manual need no broker keys
+}
+
+function suggestId(type) {
+  const n = ACCOUNTS_LIST.filter(a => (a.id || "").startsWith(type + "-")).length + 1;
+  return `${type}-${n}`;
+}
+
+function startAddAccount(type) {
+  const sel = document.getElementById("add-broker-type");
+  if (type) sel.value = type;
+  document.getElementById("add-id").value = suggestId(sel.value);
+  document.getElementById("add-account-section").scrollIntoView({behavior: "smooth", block: "center"});
+  document.getElementById("add-label").focus();
+}
+
+function showAccountInfo(acct) {
+  const box = document.getElementById("add-account-info");
+  const envs = envVarNames(acct.id, acct.broker_type);
+  if (!envs.length) { box.hidden = true; box.innerHTML = ""; return; }
+  // redirect URL computed from THIS origin so it matches whatever host/port you run on
+  const redirect = `${location.origin}/auth/${acct.broker_type}/${acct.id}/callback`;
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="envbox-title">Finish connecting ${esc(acct.label)} (${esc(acct.id)})</div>
+    <p>1. Create a developer app at your broker and register this <b>redirect URL</b>:</p>
+    <code class="copyable">${esc(redirect)}</code>
+    <p>2. Put these in your <b>.env</b> (gitignored — never commit keys):</p>
+    <ul>${envs.map(v => `<li><code>${esc(v)}</code></li>`).join("")}</ul>
+    <p>3. Reload this page, then use <b>→ Login &amp; sync</b> in Broker sync above.
+       Full walkthrough:
+       <a href="/docs/BROKER-SETUP.md" target="_blank" rel="noopener"
+          style="color:var(--accent)">docs/BROKER-SETUP.md</a>
+       (<a href="https://github.com/ylnhari/family-finance-app/blob/main/docs/BROKER-SETUP.md"
+          target="_blank" rel="noopener" style="color:var(--muted)">GitHub</a>)</p>`;
+}
+
+async function editLabel(id) {
+  const label = prompt("Account label:", LABELS[id] || "");
+  if (label == null) return;
+  try { await post(`/api/invest/accounts/${id}`, {label}); toast("Label updated"); await render(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+async function deleteAccount(id) {
+  if (!confirm(`Delete "${LABELS[id] || id}"? This removes the account from the registry.`)) return;
+  try {
+    await del(`/api/invest/accounts/${id}`);
+    toast(`Deleted ${LABELS[id] || id}`);
+    await render();
+  } catch (e) {
+    if (/holding/i.test(e.message)) {
+      if (confirm(`${e.message}\n\nDelete the account AND its holdings anyway?`)) {
+        try { await del(`/api/invest/accounts/${id}?force=1`); toast(`Deleted ${LABELS[id] || id} and its holdings`); await render(); }
+        catch (e2) { toast(e2.message, "err"); }
+      }
+    } else {
+      toast(e.message, "err");
+    }
+  }
+}
+
+// ---- manual holdings editor -----------------------------------------------
+// For manual / no-broker accounts (MANUAL_TYPES): add / edit / remove holding
+// rows and POST them to /api/invest/manual (which recomputes value + P&L and
+// replaces the account's snapshot). This is the UI the "Track manually — type in
+// holdings yourself" onboarding path promises.
+let HM_ACCOUNT = null;
+function holdingRowHTML(r) {
+  r = r || {};
+  const val = v => (v === null || v === undefined) ? "" : esc(v);
+  return `<tr>
+    <td><input class="hm-sym" placeholder="e.g. INFY" value="${val(r.symbol)}"></td>
+    <td class="num"><input type="number" step="any" class="hm-qty" placeholder="0" value="${val(r.quantity)}"></td>
+    <td class="num"><input type="number" step="any" class="hm-avg" placeholder="0" value="${val(r.avg_price)}"></td>
+    <td class="num"><input type="number" step="any" class="hm-ltp" placeholder="0" value="${val(r.last_price)}"></td>
+    <td class="num"><button class="mini-btn" title="Remove row" onclick="this.closest('tr').remove()">🗑</button></td>
+  </tr>`;
+}
+function addHoldingRow(r) {
+  document.getElementById("hm-rows").insertAdjacentHTML("beforeend",
+    holdingRowHTML(r instanceof Event ? null : r));
+}
+async function openHoldings(id) {
+  HM_ACCOUNT = id;
+  document.getElementById("hm-title").textContent = `Holdings — ${LABELS[id] || id}`;
+  const tbody = document.getElementById("hm-rows");
+  tbody.innerHTML = "";
+  try {
+    const data = await get(`/api/invest/holdings/${encodeURIComponent(id)}`);
+    (data.rows || []).forEach(row => addHoldingRow(row));
+  } catch (e) { /* new / empty account — start with a blank row */ }
+  if (!tbody.children.length) addHoldingRow();
+  document.getElementById("holdings-overlay").hidden = false;
+  const first = tbody.querySelector(".hm-sym"); if (first) first.focus();
+}
+function closeHoldings() {
+  document.getElementById("holdings-overlay").hidden = true;
+  HM_ACCOUNT = null;
+}
+async function saveHoldings() {
+  if (!HM_ACCOUNT) return;
+  const rows = [];
+  for (const tr of document.querySelectorAll("#hm-rows tr")) {
+    const symbol = tr.querySelector(".hm-sym").value.trim();
+    if (!symbol) continue;  // skip blank rows
+    rows.push({
+      symbol,
+      quantity: parseFloat(tr.querySelector(".hm-qty").value) || 0,
+      avg_price: parseFloat(tr.querySelector(".hm-avg").value) || 0,
+      last_price: parseFloat(tr.querySelector(".hm-ltp").value) || 0,
+    });
+  }
+  try {
+    await post("/api/invest/manual", {account: HM_ACCOUNT, rows});
+    toast(`Saved ${rows.length} holding${rows.length === 1 ? "" : "s"} for ${LABELS[HM_ACCOUNT] || HM_ACCOUNT}`);
+    closeHoldings();
+    await render();
+    notifyParentSynced();  // let the main app pick up the freshly-entered holdings
+  } catch (e) { toast(`Couldn't save holdings: ${e.message}`, "err"); }
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !document.getElementById("holdings-overlay").hidden) closeHoldings();
+});
+
+async function render() {
+  const [summary, signals, ipos, accounts, tokens, files, bonds, ipoHistory, allotments, personsResp] = await Promise.all(
+    ["/api/invest/summary", "/api/invest/signals", "/api/invest/ipos", "/api/invest/accounts", "/api/invest/tokens", "/api/invest/imports",
+     "/api/invest/bonds", "/api/invest/ipo-history", "/api/invest/ipo-allotments", "/api/invest/persons"].map(get));
+
+  LABELS = Object.fromEntries(accounts.map(a => [a.id, a.label]));
+  OWNERS = Object.fromEntries(accounts.map(a => [a.id, a.owner || ""]).filter(([, o]) => o));
+  PERSONS = personsResp.persons || [];
+  ACCOUNTS_LIST = accounts;
+
+  // ---- onboarding vs. populated view ----
+  const hasAccounts = accounts.length > 0;
+  document.getElementById("onboarding").hidden = hasAccounts;
+  document.getElementById("valueHero").hidden = !hasAccounts;
+  document.getElementById("accounts-empty").hidden = hasAccounts;
+  // owner suggestions for the add-account form (known persons + invest owners)
+  document.getElementById("owner-suggestions").innerHTML =
+    PERSONS.map(p => `<option value="${esc(p)}">`).join("");
+
+  // ---- hero: total + allocation ----
+  document.getElementById("heroTotal").textContent = inr(summary.total);
+  const nAccounts = Object.keys(summary.per_account).length;
+  const nClasses = Object.keys(summary.per_asset_class).length;
+  document.getElementById("heroSub").innerHTML =
+    `Across <b>${nAccounts}</b> funded account${nAccounts === 1 ? "" : "s"} · <b>${nClasses}</b> asset class${nClasses === 1 ? "" : "es"}`;
+
+  const classes = Object.entries(summary.per_asset_class).sort((a, b) => b[1] - a[1]);
+  const total = summary.total || classes.reduce((s, [, v]) => s + v, 0) || 1;
+  document.getElementById("alloc").hidden = classes.length === 0;
+  document.getElementById("allocBar").innerHTML = classes.map(([c, v]) =>
+    `<span style="width:${(v / total * 100).toFixed(2)}%;background:${classColor(c)}" title="${esc(prettyClass(c))}: ${inr(v)}"></span>`).join("");
+  document.getElementById("allocLegend").innerHTML = classes.map(([c, v]) =>
+    `<span class="item"><span class="dot" style="background:${classColor(c)}"></span>
+      ${esc(prettyClass(c))} <b>${inr(v)}</b> <span class="pct">${(v / total * 100).toFixed(0)}%</span></span>`).join("");
+
+  // ---- broker sync ----
+  document.getElementById("tokens-empty").hidden = Object.keys(tokens).length > 0;
+  document.querySelector("#tokens tbody").innerHTML = Object.entries(tokens).map(([id, t]) => {
+    const cred = t.configured
+      ? `<span class="badge ok"><span class="dotmini"></span>configured</span>`
+      : `<span class="badge off"><span class="dotmini"></span>add keys to .env</span>`;
+    const tok = t.long_lived
+      ? `<span class="badge ok"><span class="dotmini"></span>1-yr token</span>`
+      : t.token_fresh
+        ? `<span class="badge ok"><span class="dotmini"></span>fresh today</span>`
+        : `<span class="badge stale"><span class="dotmini"></span>expired</span>`;
+    const action = !t.configured ? ""
+      : t.token_fresh
+        ? `<button onclick="syncAccount('${id}', this)">↻ Sync now</button>`
+        : `<a class="btn btn-primary" href="/auth/${t.kind}/${id}/login">→ Login &amp; sync</a>`;
+    return `<tr><td>${acctCell(id)}</td><td>${cred}</td><td>${tok}</td><td class="num">${action}</td></tr>`;
+  }).join("");
+
+  // ---- IPOs needing a decision ----
+  IPOS = ipos;
+  const hasIpos = ipos.length > 0;
+  document.getElementById("ipos-empty").hidden = hasIpos;
+  document.getElementById("ipos-body").hidden = !hasIpos;
+  if (hasIpos) renderIpos();
+
+  // ---- IPO applications (allotment + listing-day P&L) ----
+  document.getElementById("tracked-ipo-names").innerHTML =
+    ipos.map(i => `<option value="${esc(i.name)}">`).join("");
+  renderAllotments(allotments);
+
+  // ---- bonds ----
+  BONDS = bonds;
+  const hasBonds = bonds.length > 0;
+  document.getElementById("bonds-empty").hidden = hasBonds;
+  document.getElementById("bonds-body").hidden = !hasBonds;
+  if (hasBonds) {
+    const bondAccts = [...new Set(bonds.map(b => b.account))];
+    document.getElementById("f-bond-account").innerHTML =
+      `<option value="all">All accounts</option>` +
+      bondAccts.map(id => `<option value="${esc(id)}">${esc(LABELS[id] || id)}</option>`).join("");
+    if (!bondAccts.includes(BOND_FILTER.account)) BOND_FILTER.account = "all";
+    renderBonds();
+  }
+
+  // ---- signals ----
+  document.querySelector("#signals tbody").innerHTML = signals.map(s => {
+    const cls = s.pnl_pct >= 0 ? "pos" : "neg";
+    const sign = s.pnl_pct >= 0 ? "+" : "";
+    return `<tr><td>${acctCell(s.account)}</td><td class="sym">${esc(s.symbol)}</td>
+      <td class="num">${inr(s.value)}</td>
+      <td class="num ${cls}">${sign}${Number(s.pnl_pct).toFixed(1)}%</td>
+      <td class="muted">${esc(s.reasons.join("; "))}</td></tr>`;
+  }).join("");
+  document.getElementById("signals-empty").hidden = signals.length > 0;
+
+  // ---- accounts ----
+  document.querySelector("#accounts tbody").innerHTML = accounts.map(a => {
+    const info = summary.per_account[a.id];
+    return `<tr><td>${acctCell(a.id, {showOwner: false})}</td><td class="muted">${esc(a.broker)}</td>
+      <td><span class="chip" style="background:${classColor(a.asset_class)}22;color:${classColor(a.asset_class)}">${esc(prettyClass(a.asset_class))}</span></td>
+      <td>${ownerSelectHTML(a)}</td>
+      <td class="num">${info ? inr(info.value) : "—"}</td>
+      <td class="faint">${info ? esc(info.as_of) : "no data yet"}</td>
+      <td class="faint">${info ? esc(info.source || "") : ""}</td>
+      <td class="num" style="white-space:nowrap">
+        ${MANUAL_TYPES.has(a.broker_type) ? `<button class="mini-btn" title="Add / edit holdings" onclick="openHoldings('${esc(a.id)}')">＋ Holdings</button>` : ""}
+        <button class="mini-btn" title="Rename label" onclick="editLabel('${esc(a.id)}')">✎</button>
+        <button class="mini-btn" title="Delete account" onclick="deleteAccount('${esc(a.id)}')">🗑</button>
+      </td></tr>`;
+  }).join("");
+
+  document.getElementById("import-files").innerHTML =
+    files.csv.length ? files.csv.map(f => `<option>${esc(f)}</option>`).join("") : "<option value=''>no CSVs in imports/</option>";
+  document.getElementById("import-account").innerHTML =
+    accounts.map(a => `<option value="${esc(a.id)}">${esc(a.label)} (${esc(a.id)})</option>`).join("");
+
+  // ---- Wint Wealth statement import ----
+  const bondAccounts = accounts.filter(a => a.asset_class === "bonds");
+  document.getElementById("wint-import-account").innerHTML =
+    bondAccounts.map(a => `<option value="${esc(a.id)}">${esc(a.label)} (${esc(a.id)})</option>`).join("");
+  document.getElementById("wint-holding-files").innerHTML =
+    files.xlsx.length ? files.xlsx.map(f => `<option>${esc(f)}</option>`).join("") : "<option value=''>no xlsx in imports/</option>";
+  document.getElementById("wint-cashflow-files").innerHTML =
+    `<option value="">no cashflow file</option>` + files.xlsx.map(f => `<option>${esc(f)}</option>`).join("");
+  document.getElementById("wint-summary-files").innerHTML =
+    `<option value="">no purchase-date file</option>` + files.xlsx.map(f => `<option>${esc(f)}</option>`).join("");
+
+  document.getElementById("ipohist-files").innerHTML =
+    files.csv.length ? files.csv.map(f => `<option>${esc(f)}</option>`).join("") : "<option value=''>no CSVs in imports/</option>";
+
+  // ---- IPO listing history ----
+  IPO_HISTORY = ipoHistory;
+  const hasHistory = ipoHistory.length > 0;
+  document.getElementById("ipohist-empty").hidden = hasHistory;
+  document.getElementById("ipohist-body").hidden = !hasHistory;
+  if (hasHistory) {
+    const years = [...new Set(ipoHistory.map(r => r.year).filter(Boolean))].sort((a, b) => b - a);
+    document.getElementById("f-year").innerHTML =
+      `<option value="all">All years</option>` + years.map(y => `<option value="${y}">${y}</option>`).join("");
+    renderIpoHistory();
+  }
+}
+
+// ---- IPOs needing a decision: filters, stat tiles, capped table ----
+let IPOS = [];
+const IPO_CAP = 20;                          // rows added per "Show more" click
+let IPO_LIMIT = IPO_CAP;                     // rows currently visible (never all at once)
+const IPO_FILTER = {q: "", call: "all", timing: "all"};
+const CALL_ORDER = {APPLY: 0, CAUTION: 1, NEUTRAL: 2, SKIP: 3};
+
+function filteredIpos() {
+  const q = IPO_FILTER.q.trim().toLowerCase();
+  return IPOS.filter(i => {
+    if (q && !i.name.toLowerCase().includes(q)) return false;
+    if (IPO_FILTER.call !== "all" && i.call !== IPO_FILTER.call) return false;
+    if (IPO_FILTER.timing === "soon" && !i.closing_soon) return false;
+    if (IPO_FILTER.timing === "applied" && !i.applied) return false;
+    return true;
+  }).sort((a, b) => a.days_to_close - b.days_to_close        // soonest decision first
+    || (CALL_ORDER[a.call] ?? 9) - (CALL_ORDER[b.call] ?? 9)); // then strongest call
+}
+
+function renderIpos() {
+  const all = filteredIpos();
+
+  // stat tiles summarise the whole tracked set, so they stay a stable overview
+  const tile = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  document.getElementById("ipos-stats").innerHTML =
+    tile("Tracked", IPOS.length) +
+    tile("Closing soon", IPOS.filter(i => i.closing_soon).length) +
+    tile("Apply calls", `<span class="pos">${IPOS.filter(i => i.call === "APPLY").length}</span>`) +
+    tile("Applied", IPOS.filter(i => i.applied).length);
+
+  const rows = all.slice(0, IPO_LIMIT);
+  document.querySelector("#ipos tbody").innerHTML = rows.map(i => `<tr>
+    <td class="sym">${esc(i.name)}${i.closing_soon ? ' <span class="chip">⏰ closing</span>' : ""}${i.applied ? ' <span class="chip">🎟️ applied</span>' : ""}</td>
+    <td>${esc(i.close_date)}<br><span class="faint">${i.days_to_close}d left</span></td>
+    <td class="num">${i.sub_total.toFixed(1)}×</td><td class="num">${i.sub_qib.toFixed(1)}×</td>
+    <td class="num">${i.sub_retail.toFixed(1)}×</td><td class="num">${i.gmp ?? "—"}</td>
+    <td><span class="pill ${i.call}">${esc(i.call)}</span></td><td class="muted">${esc(i.reason)}</td></tr>`).join("");
+
+  document.getElementById("ipos-filtered-empty").hidden = all.length > 0;
+  const more = document.getElementById("ipos-more");
+  more.hidden = all.length <= IPO_LIMIT;
+  if (!more.hidden)
+    more.querySelector("button").textContent =
+      `Show ${Math.min(IPO_CAP, all.length - IPO_LIMIT)} more · ${all.length - IPO_LIMIT} remaining`;
+}
+
+function toggleIpoCap() { IPO_LIMIT += IPO_CAP; renderIpos(); }
+
+function bindIpoFilters() {
+  const seg = (id, key) => document.getElementById(id).addEventListener("click", e => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    IPO_FILTER[key] = btn.dataset.v;
+    [...e.currentTarget.children].forEach(b => b.classList.toggle("active", b === btn));
+    IPO_LIMIT = IPO_CAP; renderIpos();
+  });
+  seg("f-ipo-call", "call");
+  seg("f-ipo-timing", "timing");
+  document.getElementById("f-ipo-q").addEventListener("input", e => {
+    IPO_FILTER.q = e.target.value; IPO_LIMIT = IPO_CAP; renderIpos();
+  });
+}
+bindIpoFilters();
+
+// ---- IPO applications: allotment status + listing-day P&L ----
+function renderAllotments(rows) {
+  const has = rows.length > 0;
+  document.getElementById("allot-empty").hidden = has;
+  document.getElementById("allot-body").hidden = !has;
+  const badge = s => s === "ALLOTTED" ? '<span class="pill APPLY">ALLOTTED</span>'
+    : s === "NOT_ALLOTTED" ? '<span class="pill SKIP">not allotted</span>'
+    : '<span class="pill NEUTRAL">awaiting</span>';
+  document.querySelector("#allot tbody").innerHTML = rows.map(r => {
+    const dates = [r.allotment_date && ("allot " + esc(r.allotment_date)),
+                   r.listing_date && ("list " + esc(r.listing_date))]
+      .filter(Boolean).join("<br>") || '<span class="faint">—</span>';
+    const alloted = r.status === "ALLOTTED";
+    const gain = alloted
+      ? pctCell(r.gain_pct) + (r.gain_amount != null
+          ? `<br><span class="faint">${r.gain_amount >= 0 ? "+" : ""}${inr(r.gain_amount)}</span>` : "")
+      : "—";
+    return `<tr>
+      <td class="sym">${esc(r.name)}</td>
+      <td>${r.symbol ? esc(r.symbol) : '<span class="faint">—</span>'}</td>
+      <td>${badge(r.status)}${alloted ? `<br><span class="faint">${esc(LABELS[r.account] || r.account)}</span>` : ""}</td>
+      <td class="num">${alloted ? inr(r.got_price) : "—"}</td>
+      <td class="num">${alloted ? inr(r.last_price) : "—"}</td>
+      <td class="num">${gain}</td>
+      <td class="faint">${dates}</td></tr>`;
+  }).join("");
+}
+
+// ---- IPO listing-history view: filters, stats, charts, table ----
+let IPO_HISTORY = [];
+const HIST_CAP = 25;                         // rows added per "Show more" click
+let HIST_LIMIT = HIST_CAP;                   // rows currently visible (never all at once)
+const HIST_FILTER = {q: "", year: "all", segment: "all", outcome: "all"};
+const SEG_COLORS = {Mainboard: "#6366f1", SME: "#f59e0b"};
+const pctCell = v => v == null ? '<span class="faint">—</span>'
+  : `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "+" : ""}${v.toFixed(1)}%</span>`;
+
+function filteredHistory() {
+  const q = HIST_FILTER.q.trim().toLowerCase();
+  return IPO_HISTORY.filter(r => {
+    if (q && !(r.name || "").toLowerCase().includes(q)) return false;
+    if (HIST_FILTER.year !== "all" && String(r.year) !== HIST_FILTER.year) return false;
+    if (HIST_FILTER.segment !== "all" && r.segment !== HIST_FILTER.segment) return false;
+    if (HIST_FILTER.outcome === "gain" && !(r.listing_gain_pct > 0)) return false;
+    if (HIST_FILTER.outcome === "loss" && !(r.listing_gain_pct < 0)) return false;
+    return true;
+  });
+}
+
+function toggleHistCap() { HIST_LIMIT += 50; renderIpoHistory(); }
+
+function renderIpoHistory() {
+  const rows = filteredHistory();
+  const withGain = rows.filter(r => r.listing_gain_pct != null);
+
+  // stat tiles (reflect the current filter)
+  const avg = withGain.length ? withGain.reduce((s, r) => s + r.listing_gain_pct, 0) / withGain.length : null;
+  const winners = withGain.filter(r => r.listing_gain_pct > 0).length;
+  const best = withGain.reduce((m, r) => !m || r.listing_gain_pct > m.listing_gain_pct ? r : m, null);
+  const worst = withGain.reduce((m, r) => !m || r.listing_gain_pct < m.listing_gain_pct ? r : m, null);
+  const tile = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const gv = (r, label) => r ? `${r.listing_gain_pct >= 0 ? "+" : ""}${r.listing_gain_pct.toFixed(0)}% <small>${esc(label)}</small>` : "—";
+  document.getElementById("ipohist-stats").innerHTML =
+    tile("IPOs", rows.length) +
+    tile("Avg listing gain", avg == null ? "—" : `<span class="${avg >= 0 ? "pos" : "neg"}">${avg >= 0 ? "+" : ""}${avg.toFixed(1)}%</span>`) +
+    tile("Gained on listing", withGain.length ? `${Math.round(winners / withGain.length * 100)}%` : "—") +
+    tile("Best", gv(best, best ? best.name.split(" ")[0] : "")) +
+    tile("Worst", gv(worst, worst ? worst.name.split(" ")[0] : ""));
+
+  // table (incrementally loaded; stats + charts above still use the full filtered set)
+  const shown = rows.slice(0, HIST_LIMIT);
+  document.querySelector("#ipohist tbody").innerHTML = shown.map(r => `<tr>
+    <td class="sym">${esc(r.name)}</td>
+    <td><span class="chip" style="background:${SEG_COLORS[r.segment] || "#64748b"}22;color:${SEG_COLORS[r.segment] || "#64748b"}">${r.segment ? esc(r.segment) : "—"}</span></td>
+    <td>${prettyDate(r.listing_date)}</td>
+    <td class="num">${r.issue_price != null ? r.issue_price.toLocaleString("en-IN") : "—"}</td>
+    <td class="num">${r.listing_price != null ? r.listing_price.toLocaleString("en-IN") : "—"}</td>
+    <td class="num">${pctCell(r.listing_gain_pct)}</td>
+    <td class="num">${r.sub_total != null ? r.sub_total.toFixed(1) + "×" : "—"}</td></tr>`).join("");
+  document.getElementById("ipohist-filtered-empty").hidden = rows.length > 0;
+  const histMore = document.getElementById("ipohist-more");
+  histMore.hidden = rows.length <= HIST_LIMIT;
+  if (!histMore.hidden)
+    histMore.querySelector("button").textContent =
+      `Show ${Math.min(50, rows.length - HIST_LIMIT)} more · ${rows.length - HIST_LIMIT} remaining`;
+
+  drawYearChart(withGain);
+  drawScatter(withGain.filter(r => r.sub_total != null));
+}
+
+const SVGNS = "http://www.w3.org/2000/svg";
+function chartTip(el, html) {
+  const tip = document.getElementById("chart-tip");
+  el.addEventListener("mousemove", e => {
+    tip.innerHTML = html; tip.className = "show";
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 220) + "px";
+    tip.style.top = (e.clientY + 14) + "px";
+  });
+  el.addEventListener("mouseleave", () => tip.className = "");
+}
+
+function drawYearChart(withGain) {
+  const host = document.getElementById("chart-year");
+  const byYear = {};
+  for (const r of withGain) (byYear[r.year] ??= []).push(r.listing_gain_pct);
+  const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+  if (!years.length) { host.innerHTML = '<div class="chart-empty">No priced IPOs in range.</div>'; return; }
+  const data = years.map(y => ({y, avg: byYear[y].reduce((s, v) => s + v, 0) / byYear[y].length, n: byYear[y].length}));
+
+  const W = 320, H = 190, padB = 26, padT = 12, padX = 8;
+  const maxAbs = Math.max(20, ...data.map(d => Math.abs(d.avg)));
+  const zeroY = padT + (H - padT - padB) * (maxAbs / (2 * maxAbs));
+  const bw = (W - padX * 2) / data.length;
+  const yOf = v => padT + (H - padT - padB) * ((maxAbs - v) / (2 * maxAbs));
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Average listing gain by year">`;
+  svg += `<line class="grid" x1="${padX}" y1="${zeroY}" x2="${W - padX}" y2="${zeroY}"/>`;
+  data.forEach((d, i) => {
+    const x = padX + i * bw + bw * 0.18, w = bw * 0.64;
+    const top = Math.min(yOf(d.avg), zeroY), h = Math.max(2, Math.abs(yOf(d.avg) - zeroY));
+    const fill = d.avg >= 0 ? "var(--pos)" : "var(--neg)";
+    svg += `<rect class="mark" data-i="${i}" x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3" style="fill:${fill}"/>`;
+    svg += `<text class="lbl" x="${(x + w / 2).toFixed(1)}" y="${H - padB + 14}" text-anchor="middle">${d.y}</text>`;
+    svg += `<text class="lbl" x="${(x + w / 2).toFixed(1)}" y="${(d.avg >= 0 ? top - 4 : top + h + 11).toFixed(1)}" text-anchor="middle">${d.avg >= 0 ? "+" : ""}${d.avg.toFixed(0)}%</text>`;
+  });
+  svg += `</svg>`;
+  host.innerHTML = svg;
+  host.querySelectorAll(".mark").forEach(el => {
+    const d = data[+el.dataset.i];
+    chartTip(el, `<b>${d.y}</b> · ${d.n} IPO${d.n === 1 ? "" : "s"}<br>avg listing gain <b>${d.avg >= 0 ? "+" : ""}${d.avg.toFixed(1)}%</b>`);
+  });
+}
+
+function drawScatter(rows) {
+  const host = document.getElementById("chart-scatter");
+  if (!rows.length) { host.innerHTML = '<div class="chart-empty">Need subscription + price data — import a CSV.</div>'; return; }
+  const W = 320, H = 190, padL = 34, padB = 26, padT = 10, padR = 8;
+  const subs = rows.map(r => r.sub_total);
+  const xMax = Math.max(5, ...subs);
+  const gains = rows.map(r => r.listing_gain_pct);
+  const yMax = Math.max(20, ...gains), yMin = Math.min(-10, ...gains);
+  const xOf = v => padL + (W - padL - padR) * (v / xMax);
+  const yOf = v => padT + (H - padT - padB) * ((yMax - v) / (yMax - yMin));
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Subscription versus listing gain">`;
+  // axes: zero-gain line + left axis
+  svg += `<line class="grid" x1="${padL}" y1="${yOf(0).toFixed(1)}" x2="${W - padR}" y2="${yOf(0).toFixed(1)}"/>`;
+  svg += `<line class="axis" x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}"/>`;
+  svg += `<text class="lbl" x="${padL - 4}" y="${yOf(yMax) + 8}" text-anchor="end">${yMax.toFixed(0)}%</text>`;
+  svg += `<text class="lbl" x="${padL - 4}" y="${yOf(0) + 3}" text-anchor="end">0</text>`;
+  svg += `<text class="lbl" x="${W - padR}" y="${H - padB + 14}" text-anchor="end">${xMax.toFixed(0)}× subs</text>`;
+  rows.forEach((r, i) => {
+    svg += `<circle class="mark" data-i="${i}" cx="${xOf(r.sub_total).toFixed(1)}" cy="${yOf(r.listing_gain_pct).toFixed(1)}" r="5" style="fill:${SEG_COLORS[r.segment] || "#64748b"};stroke:var(--surface-solid);stroke-width:1.5"/>`;
+  });
+  svg += `</svg>`;
+  host.innerHTML = svg;
+  host.querySelectorAll(".mark").forEach(el => {
+    const r = rows[+el.dataset.i];
+    chartTip(el, `<b>${esc(r.name)}</b><br>${esc(r.segment || "")} · subscribed <b>${r.sub_total.toFixed(1)}×</b><br>listing gain <b>${r.listing_gain_pct >= 0 ? "+" : ""}${r.listing_gain_pct.toFixed(1)}%</b>`);
+  });
+}
+
+function bindSeg(id, key) {
+  document.getElementById(id).addEventListener("click", e => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    HIST_FILTER[key] = btn.dataset.v;
+    [...e.currentTarget.children].forEach(b => b.classList.toggle("active", b === btn));
+    HIST_LIMIT = HIST_CAP; renderIpoHistory();
+  });
+}
+
+// ---- Bonds view: cash-journey stats, charts, table ----
+let BONDS = [];
+const BOND_CAP = 25;                         // rows added per "Show more" click
+let BOND_LIMIT = BOND_CAP;                   // rows currently visible (never all at once)
+const BOND_FILTER = {account: "all", repay: "all"};
+const REPAY_COLORS = {Staggered: "#6366f1", "At maturity": "#f59e0b", Other: "#64748b"};
+
+// Wint labels principal repayment; fold the raw string into two clear buckets.
+function repayBucket(b) {
+  const t = (b.principal_repayment_type || "").toLowerCase();
+  if (t.includes("matur")) return "At maturity";
+  if (t.includes("stagger") || t.includes("periodic") || t.includes("amort") || t.includes("instal")) return "Staggered";
+  return "Other";
+}
+
+// The full after-TDS cash journey of one bond.
+function bondCash(b) {
+  const received = (b.principal_repaid_till_date || 0) + (b.interest_received_after_tds_till_date || 0);
+  const upcoming = b.expected_total_remaining || 0;   // after-TDS interest + principal still due
+  const finalTotal = received + upcoming;
+  const invested = b.total_invested || 0;
+  const gain = finalTotal - invested;
+  return {received, upcoming, finalTotal, invested, gain,
+          gainPct: invested ? gain / invested * 100 : 0};
+}
+
+const shortBond = s => (s || "").replace(/\s+/g, " ").trim().slice(0, 22) + ((s || "").length > 22 ? "…" : "");
+
+// months held since purchase → "held 8m" / "held 1y 4m"
+function heldLabel(iso) {
+  const d = new Date(iso + "T00:00:00"), now = new Date();
+  let m = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) m--;
+  m = Math.max(0, m);
+  return m >= 12 ? `held ${Math.floor(m / 12)}y ${m % 12}m` : `held ${m}m`;
+}
+
+function filteredBonds() {
+  return BONDS.filter(b =>
+    (BOND_FILTER.account === "all" || b.account === BOND_FILTER.account) &&
+    (BOND_FILTER.repay === "all" || repayBucket(b) === BOND_FILTER.repay));
+}
+
+function renderBonds() {
+  const rows = filteredBonds();
+
+  // stat tiles — portfolio cash journey across the filtered bonds
+  const agg = rows.reduce((a, b) => {
+    const c = bondCash(b);
+    a.invested += c.invested; a.received += c.received; a.upcoming += c.upcoming; a.gain += c.gain;
+    return a;
+  }, {invested: 0, received: 0, upcoming: 0, gain: 0});
+  const finalTotal = agg.received + agg.upcoming;
+  const gainCls = agg.gain >= 0 ? "pos" : "neg", gainSign = agg.gain >= 0 ? "+" : "";
+  const gainPct = agg.invested ? agg.gain / agg.invested * 100 : 0;
+  const tile = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  document.getElementById("bonds-stats").innerHTML =
+    tile("Bonds", rows.length) +
+    tile("Invested", inr(agg.invested)) +
+    tile("Received so far", inr(agg.received)) +
+    tile("Still to come", inr(agg.upcoming)) +
+    tile("Net gain", `<span class="${gainCls}">${gainSign}${inr(agg.gain).slice(1)} <small>${gainSign}${gainPct.toFixed(1)}%</small></span>`);
+
+  // table (incrementally loaded; stats + charts above still use the full filtered set)
+  const shown = rows.slice(0, BOND_LIMIT);
+  document.querySelector("#bonds tbody").innerHTML = shown.map(b => {
+    const c = bondCash(b), bkt = repayBucket(b), col = REPAY_COLORS[bkt];
+    const gCls = c.gain >= 0 ? "pos" : "neg", gSign = c.gain >= 0 ? "+" : "";
+    const rate = b.xirr_pct != null ? b.xirr_pct.toFixed(2) + "% XIRR"
+      : b.ytm_pct != null ? b.ytm_pct.toFixed(1) + "% YTM" : "";
+    return `<tr><td>${acctCell(b.account)}</td>
+      <td><div class="sym">${esc(b.symbol)}</div>
+        <span class="chip" style="background:${col}22;color:${col}">${bkt === "Other" ? esc(b.principal_repayment_type || "—") : bkt}</span></td>
+      <td>${b.purchase_date ? `${prettyDate(b.purchase_date)}<br><span class="faint">${heldLabel(b.purchase_date)}</span>` : '<span class="faint">—</span>'}</td>
+      <td>${prettyDate(b.maturity_date)}<br><span class="faint">${rate}</span></td>
+      <td class="num">${inr(c.invested)}</td>
+      <td class="num">${inr(c.received)}</td>
+      <td class="num">${inr(c.upcoming)}</td>
+      <td class="num"><b>${inr(c.finalTotal)}</b></td>
+      <td class="num ${gCls}">${gSign}${inr(c.gain).slice(1)}<br><span class="faint">${gSign}${c.gainPct.toFixed(1)}%</span></td>
+      <td>${b.next_cashflow_date ? `${prettyDate(b.next_cashflow_date)}<br><span class="faint">${inr(b.next_cashflow_amount)}</span>` : "—"}</td>
+      </tr>`;
+  }).join("");
+  document.getElementById("bonds-filtered-empty").hidden = rows.length > 0;
+  const bondsMore = document.getElementById("bonds-more");
+  bondsMore.hidden = rows.length <= BOND_LIMIT;
+  if (!bondsMore.hidden)
+    bondsMore.querySelector("button").textContent =
+      `Show ${Math.min(BOND_CAP, rows.length - BOND_LIMIT)} more · ${rows.length - BOND_LIMIT} remaining`;
+
+  drawBondCashflow(rows);
+  drawRepayStyle(rows);
+}
+
+function toggleBondCap() { BOND_LIMIT += BOND_CAP; renderBonds(); }
+
+// Horizontal bar per bond: solid = received, translucent = still to come,
+// dashed tick = invested (bar length past the tick is profit). Colour by repay style.
+function drawBondCashflow(rows) {
+  const host = document.getElementById("chart-bond-cashflow");
+  if (!rows.length) { host.innerHTML = '<div class="chart-empty">No bonds in range.</div>'; return; }
+  const data = rows.map(b => ({b, c: bondCash(b), col: REPAY_COLORS[repayBucket(b)]}))
+                   .sort((a, z) => z.c.finalTotal - a.c.finalTotal);
+  const W = 340, padL = 8, padR = 10, rowH = 40, padT = 4, padB = 6;
+  const H = padT + padB + data.length * rowH;
+  const maxV = Math.max(1, ...data.map(d => Math.max(d.c.finalTotal, d.c.invested)));
+  const x0 = padL, x1 = W - padR;
+  const xOf = v => x0 + (x1 - x0) * (v / maxV);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Money back per bond">`;
+  data.forEach((d, i) => {
+    const yTop = padT + i * rowH, barY = yTop + 20, bh = 12;
+    const recvW = Math.max(0, xOf(d.c.received) - x0);
+    const upW = Math.max(0, xOf(d.c.finalTotal) - xOf(d.c.received));
+    // labels: name left, final total right
+    svg += `<text class="name" x="${x0}" y="${yTop + 12}">${esc(shortBond(d.b.symbol))}</text>`;
+    svg += `<text class="lbl" x="${x1}" y="${yTop + 12}" text-anchor="end">${inr(d.c.finalTotal)} back</text>`;
+    // received (solid)
+    if (recvW > 0) svg += `<rect class="mark" data-i="${i}" x="${x0}" y="${barY}" width="${recvW.toFixed(1)}" height="${bh}" rx="3" style="fill:${d.col}"/>`;
+    // still to come (translucent, 2px gap after received)
+    if (upW > 1) svg += `<rect class="mark" data-i="${i}" x="${(xOf(d.c.received) + 2).toFixed(1)}" y="${barY}" width="${Math.max(1, upW - 2).toFixed(1)}" height="${bh}" rx="3" style="fill:${d.col};fill-opacity:.32"/>`;
+    // invested tick
+    const xi = xOf(d.c.invested);
+    svg += `<line x1="${xi.toFixed(1)}" y1="${barY - 3}" x2="${xi.toFixed(1)}" y2="${barY + bh + 3}" style="stroke:var(--faint);stroke-width:2;stroke-dasharray:2 2"/>`;
+  });
+  svg += `</svg>`;
+  host.innerHTML = svg;
+  host.querySelectorAll(".mark").forEach(el => {
+    const d = data[+el.dataset.i], c = d.c;
+    const gSign = c.gain >= 0 ? "+" : "";
+    const bought = d.b.purchase_date ? `bought ${prettyDate(d.b.purchase_date)}<br>` : "";
+    chartTip(el, `<b>${esc(d.b.symbol)}</b><br>${bought}invested <b>${inr(c.invested)}</b><br>received <b>${inr(c.received)}</b> · to come <b>${inr(c.upcoming)}</b><br>final <b>${inr(c.finalTotal)}</b> · gain <b>${gSign}${inr(c.gain).slice(1)}</b>`);
+  });
+}
+
+// Two stacked bars (Staggered vs At maturity): received (solid) + still-to-come
+// (translucent). Makes the difference plain — staggered has already returned more.
+function drawRepayStyle(rows) {
+  const host = document.getElementById("chart-repay");
+  const order = ["Staggered", "At maturity", "Other"];
+  const buckets = {};
+  for (const b of rows) {
+    const k = repayBucket(b), c = bondCash(b);
+    (buckets[k] ??= {received: 0, upcoming: 0, n: 0});
+    buckets[k].received += c.received; buckets[k].upcoming += c.upcoming; buckets[k].n++;
+  }
+  const data = order.filter(k => buckets[k]).map(k => ({k, ...buckets[k], total: buckets[k].received + buckets[k].upcoming}));
+  if (!data.length) { host.innerHTML = '<div class="chart-empty">No bonds in range.</div>'; return; }
+  const W = 340, padL = 8, padR = 10, padT = 6, rowH = 54, labelH = 16;
+  const H = padT + data.length * rowH;
+  const maxV = Math.max(1, ...data.map(d => d.total));
+  const x0 = padL, x1 = W - padR, xOf = v => x0 + (x1 - x0) * (v / maxV);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash returned by repayment style">`;
+  data.forEach((d, i) => {
+    const yTop = padT + i * rowH, barY = yTop + labelH, bh = 16, col = REPAY_COLORS[d.k];
+    svg += `<text class="name" x="${x0}" y="${yTop + 11}">${d.k} <tspan class="lbl">· ${d.n} bond${d.n === 1 ? "" : "s"}</tspan></text>`;
+    svg += `<text class="lbl" x="${x1}" y="${yTop + 11}" text-anchor="end">${inr(d.total)}</text>`;
+    const recvW = Math.max(0, xOf(d.received) - x0);
+    const upW = Math.max(0, xOf(d.total) - xOf(d.received));
+    if (recvW > 0) svg += `<rect class="mark" data-i="${i}" x="${x0}" y="${barY}" width="${recvW.toFixed(1)}" height="${bh}" rx="3" style="fill:${col}"/>`;
+    if (upW > 1) svg += `<rect class="mark" data-i="${i}" x="${(xOf(d.received) + 2).toFixed(1)}" y="${barY}" width="${Math.max(1, upW - 2).toFixed(1)}" height="${bh}" rx="3" style="fill:${col};fill-opacity:.32"/>`;
+  });
+  svg += `</svg>`;
+  host.innerHTML = svg;
+  host.querySelectorAll(".mark").forEach(el => {
+    const d = data[+el.dataset.i];
+    const pct = d.total ? Math.round(d.received / d.total * 100) : 0;
+    chartTip(el, `<b>${d.k}</b> · ${d.n} bond${d.n === 1 ? "" : "s"}<br>received <b>${inr(d.received)}</b> (${pct}%)<br>still to come <b>${inr(d.upcoming)}</b>`);
+  });
+}
+
+function bindBondSeg() {
+  document.getElementById("f-repay").addEventListener("click", e => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    BOND_FILTER.repay = btn.dataset.v;
+    [...e.currentTarget.children].forEach(b => b.classList.toggle("active", b === btn));
+    BOND_LIMIT = BOND_CAP; renderBonds();
+  });
+  document.getElementById("f-bond-account").addEventListener("change", e => {
+    BOND_FILTER.account = e.target.value; BOND_LIMIT = BOND_CAP; renderBonds();
+  });
+}
+bindBondSeg();
+bindSeg("f-segment", "segment");
+bindSeg("f-outcome", "outcome");
+document.getElementById("f-year").addEventListener("change", e => { HIST_FILTER.year = e.target.value; HIST_LIMIT = HIST_CAP; renderIpoHistory(); });
+document.getElementById("f-hist-q").addEventListener("input", e => { HIST_FILTER.q = e.target.value; HIST_LIMIT = HIST_CAP; renderIpoHistory(); });
+
+async function refreshIpoHistory(btn) {
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Rebuilding…";
+  try { const r = await post("/api/invest/sync/ipo-history"); toast(`IPO history: ${r.total} past IPOs`); await render(); notifyParentSynced(); }
+  catch (e) { toast("NSE rebuild failed: " + e.message, "err"); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+
+document.getElementById("ipohist-import-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  if (!f.file) return toast("no CSV files in imports/", "err");
+  try { const r = await post("/api/invest/import-ipo-history", f); toast(`imported ${r.count} IPOs (+${r.added} new)`); await render(); }
+  catch (err) { toast(err.message, "err"); }
+});
+
+async function refreshIpos(btn) {
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Refreshing…";
+  try { const r = await post("/api/invest/sync/ipos"); toast(`NSE: updated ${r.count} IPO(s)`); await render(); notifyParentSynced(); }
+  catch (e) { toast("NSE refresh failed: " + e.message, "err"); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+
+async function refreshIposUpstox(btn) {
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Refreshing…";
+  try { const r = await post("/api/invest/sync/ipos-upstox"); toast(`Upstox: updated ${r.count} IPO(s) (with symbols)`); await render(); notifyParentSynced(); }
+  catch (e) { toast("Upstox refresh failed: " + e.message, "err"); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+
+async function syncAccount(id, btn) {
+  btn.disabled = true; btn.textContent = "Syncing…";
+  try {
+    const r = await post("/api/invest/sync/" + id);
+    toast(`${LABELS[id] || id} synced: ${JSON.stringify(r)}`);
+    await render();
+    notifyParentSynced();   // let the main app pick up freshly-synced liveSync portfolio rows
+  }
+  catch (e) { toast(`${LABELS[id] || id} sync failed: ` + e.message, "err"); btn.disabled = false; btn.textContent = "↻ Sync now"; }
+}
+
+document.getElementById("ipo-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  const body = {name: f.name, close_date: f.close_date};
+  for (const k of ["sub_total", "sub_qib", "sub_nii", "sub_retail"]) if (f[k]) body[k] = parseFloat(f[k]);
+  if (f.gmp) body.gmp = parseFloat(f.gmp);
+  try { await post("/api/invest/ipos", body); toast("IPO saved"); e.target.reset(); await render(); }
+  catch (err) { toast(err.message, "err"); }
+});
+
+document.getElementById("applied-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  const body = {name: f.name, applied: true};
+  for (const k of ["symbol", "allotment_date", "listing_date"]) if (f[k]) body[k] = f[k];
+  try { await post("/api/invest/ipos/applied", body); toast(`Marked “${f.name}” as applied`); e.target.reset(); await render(); }
+  catch (err) { toast(err.message, "err"); }
+});
+
+document.getElementById("import-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  if (!f.file) return toast("no CSV files in imports/", "err");
+  try { const r = await post("/api/invest/import", f); toast(`imported ${r.rows.length} positions into ${LABELS[f.account] || f.account}`); await render(); notifyParentSynced(); }
+  catch (err) { toast(err.message, "err"); }
+});
+
+// suggest a fresh id when the broker type changes (only if the field is empty
+// or still shows a prior suggestion the user didn't hand-edit)
+document.getElementById("add-broker-type").addEventListener("change", e => {
+  const idInput = document.getElementById("add-id");
+  if (!idInput.value.trim() || /^(kite|upstox|coin|wint|smallcase|manual)-\d+$/.test(idInput.value.trim()))
+    idInput.value = suggestId(e.target.value);
+});
+
+document.getElementById("add-account-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  try {
+    const acct = await post("/api/invest/accounts", {
+      id: (f.id || "").trim(), broker_type: f.broker_type,
+      label: (f.label || "").trim(), owner: (f.owner || "").trim(),
+    });
+    toast(`Added ${acct.label} (${acct.id})`);
+    e.target.reset();
+    showAccountInfo(acct);   // env keys + redirect URL for broker accounts
+    await render();
+  } catch (err) { toast(err.message, "err"); }
+});
+
+document.getElementById("wint-import-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  if (!f.holding_file) return toast("no xlsx files in imports/", "err");
+  try { const r = await post("/api/invest/import-wint", f); toast(`imported ${r.rows.length} bonds into ${LABELS[f.account] || f.account}`); await render(); notifyParentSynced(); }
+  catch (err) { toast(err.message, "err"); }
+});
+
+// theme: one shared preference with the main app (theme.js applies it before
+// paint and keeps every tab / the parent<->iframe pair in sync). This just
+// wires the toolbar button to the shared toggle.
+document.getElementById("themeToggle").addEventListener("click", () => FFATheme.toggle());
+
+// hide-values toggle — shares the main app's "ffa_hideValues" localStorage key, so
+// hiding values here (or in the main app) hides them on both.
+function syncHideToggleBtn() {
+  const btn = document.getElementById("hideToggle");
+  btn.textContent = hideValues ? "🙈" : "👁";
+  btn.title = hideValues ? "Values hidden — click to reveal" : "Click to hide all values";
+}
+document.getElementById("hideToggle").addEventListener("click", () => {
+  hideValues = !hideValues;
+  localStorage.setItem("ffa_hideValues", hideValues ? "1" : "0");
+  syncHideToggleBtn();
+  render();
+});
+// mirror a hide-values toggle made in the main app (or another tab) live
+window.addEventListener("storage", e => {
+  if (e.key !== "ffa_hideValues" && e.key !== null) return;
+  const now = localStorage.getItem("ffa_hideValues") === "1";
+  if (now === hideValues) return;
+  hideValues = now;
+  syncHideToggleBtn();
+  render();
+});
+syncHideToggleBtn();
+
+render();
+</script>
+</body>
+</html>

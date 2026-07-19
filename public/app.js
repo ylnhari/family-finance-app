@@ -374,15 +374,52 @@ function confirmModal(msg, onYes, label) {
 
 /* ================= router ================= */
 const PAGES = {};
+/* "live" (Live Investments) is special: it's an embedded iframe, not an HTML string.
+   Its DOM node lives outside #main (in #liveHost, a flex sibling — see index.html) so
+   that the normal `#main.innerHTML = ...` render cycle never touches it. That keeps the
+   iframe alive (unloaded/un-reset) across tab switches, preserving its scroll position
+   and in-page state, per the spec's "persistent iframe" requirement. PAGES.live is kept
+   as a router entry for consistency/discoverability even though render() special-cases it. */
+PAGES.live = () => "";
 function navigate(page) {
   currentPage = page;
+  if (typeof _pageLimits === "object") _pageLimits = {};  // fresh "show more" limits per page visit
   els("#nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
   render();
 }
 function render() {
-  el("#main").innerHTML = PAGES[currentPage] ? PAGES[currentPage]() : "<p>Unknown page</p>";
+  const isLive = currentPage === "live";
+  const main = el("#main"), liveHost = el("#liveHost");
+  if (liveHost) liveHost.hidden = !isLive;
+  if (main) main.hidden = isLive;
+  if (isLive) {
+    const frame = el("#liveFrame");
+    if (frame && frame.getAttribute("src") === "about:blank") frame.src = "/invest?embed=1";
+    return;
+  }
+  main.innerHTML = PAGES[currentPage] ? PAGES[currentPage]() : "<p>Unknown page</p>";
   const hook = window["after_" + currentPage];
   if (typeof hook === "function") hook();
+}
+
+/* ---- freshness: the embedded invest tab tells us (via postMessage) when a broker/NSE
+   sync completed, so the main app can pick up newly-synced liveSync portfolio rows —
+   same idea as the gold-price auto-fetch refreshing just that one value. ---- */
+window.addEventListener("message", e => {
+  if (e.origin !== location.origin) return;
+  if (!e.data || e.data.type !== "invest-synced") return;
+  onInvestSynced();
+});
+async function onInvestSynced() {
+  try {
+    clearTimeout(saveTimer);
+    await doSave();          // flush any pending/debounced local edits first
+    await loadDB();          // re-fetch /api/data (server-owned liveSync rows included)
+    render();
+    toast("Live investment values updated");
+  } catch (e) {
+    toast("Could not refresh live investment values: " + e.message, true);
+  }
 }
 function pageHead(title, sub, actionsHTML) {
   return `<div class="page-head"><div><h1>${esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div>
@@ -681,23 +718,24 @@ PAGES.dashboard = () => {
 
   <div class="section-title">Loans &amp; Goals</div>
   <div class="grid two-col">
-    <div class="panel"><h2>Active Loans</h2>${
-      activeLoans().length ? activeLoans().map(L => {
+    <div class="panel"><h2>Active Loans</h2>${(() => {
+      const paged = pagedRows("dash:loans", activeLoans(), L => {
         const st = loanState(L);
         const pct = num(L.principal) ? st.paidPrincipal / num(L.principal) : 0;
         return `<div class="mb"><div style="display:flex;justify-content:space-between;font-size:13.5px">
           <b>${esc(L.name)}</b><span>${fmtMoney(st.balance)} left · EMI ${fmtMoney(st.emi)}</span></div>
           <div class="progress"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>
           <div class="small muted">${st.paidMonths}/${st.sched.rows.length} months · ${fmtPct(pct)} principal repaid</div></div>`;
-      }).join("") : '<div class="empty">No active loans 🎉</div>'
-    }</div>
-    <div class="panel"><h2>Upcoming Goals</h2>${
-      goalsOpen.length ? `<div class="table-wrap"><table><thead><tr><th>Goal</th><th class="num">Value</th><th>Target</th></tr></thead><tbody>${
-        goalsOpen.sort((a, b) => new Date(a.estimatedDate || "2999") - new Date(b.estimatedDate || "2999"))
-          .map(g => `<tr><td>${esc(g.name)} <span class="chip gray">${esc(g.type || "")}</span></td>
-            <td class="num">${fmtMoney(num(g.currentMarketValue || g.value))}</td><td>${fmtDate(g.estimatedDate)}</td></tr>`).join("")
-      }</tbody></table></div>` : '<div class="empty">No open goals</div>'
-    }</div>
+      });
+      return (paged.html || '<div class="empty">No active loans 🎉</div>') + paged.footer;
+    })()}</div>
+    <div class="panel"><h2>Upcoming Goals</h2>${(() => {
+      if (!goalsOpen.length) return '<div class="empty">No open goals</div>';
+      const sorted = goalsOpen.sort((a, b) => new Date(a.estimatedDate || "2999") - new Date(b.estimatedDate || "2999"));
+      const paged = pagedRows("dash:goals", sorted, g => `<tr><td>${esc(g.name)} <span class="chip gray">${esc(g.type || "")}</span></td>
+            <td class="num">${fmtMoney(num(g.currentMarketValue || g.value))}</td><td>${fmtDate(g.estimatedDate)}</td></tr>`);
+      return `<div class="table-wrap"><table><thead><tr><th>Goal</th><th class="num">Value</th><th>Target</th></tr></thead><tbody>${paged.html}</tbody></table></div>${paged.footer}`;
+    })()}</div>
   </div>`;
 };
 
@@ -906,11 +944,11 @@ function delEarner(pi) {
 }
 function addComp(pi, yi) {
   DB.income.persons[pi].salaryYears[yi].components.push({ component: "New component", amount: 0, scope: "gross" });
-  save(); render();
+  save(true); render();  // flush immediately so an unedited new row survives a quick navigate-away
 }
 function addDed(pi, yi) {
   DB.income.persons[pi].salaryYears[yi].deductions.push({ component: "New deduction", amount: 0 });
-  save(); render();
+  save(true); render();  // flush immediately so an unedited new row survives a quick navigate-away
 }
 function updComp(pi, yi, ci, field, val) {
   const c = DB.income.persons[pi].salaryYears[yi].components[ci];
@@ -1310,6 +1348,11 @@ PAGES.expenses = () => {
     (Object.entries(groups).map(([g, items]) => {
       const sub = items.reduce((s, [e]) => s + num(e.amount), 0);
       const dim = groupDim(g);
+      const paged = pagedRows(`expenses:${g}`, items, ([e, i]) => `
+          <tr><td>${esc(e.category)}</td>${dim !== "none" ? `<td class="muted">${esc((dim === "location" ? e.location : e.person) || "—")}</td>` : ""}
+          <td class="num"><input class="inline-input" value="${num(e.amount)}" onchange="updExpense(${i},this.value)"></td>
+          <td><button class="icon-btn" title="Edit" onclick="editExpense(${i})">✎</button>
+              <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`);
       return `<div class="panel"><h2>${esc(g)} <span class="chip">${fmtMoney(sub)}</span>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
           <span class="chip gray" title="What each entry tracks besides category">${dim === "none" ? "category only" : "by " + dim}</span>
@@ -1317,13 +1360,8 @@ PAGES.expenses = () => {
           <button class="btn small secondary" onclick="addExpense('${esc(g)}')">+ Add</button></span></h2>
       <div class="table-wrap"><table>
         <thead><tr><th>Category</th>${dim !== "none" ? `<th>${DIM_LABEL[dim]}</th>` : ""}<th class="num">Monthly Cost</th><th style="width:70px"></th></tr></thead>
-        <tbody>${items.map(([e, i]) => `
-          <tr><td>${esc(e.category)}</td>${dim !== "none" ? `<td class="muted">${esc((dim === "location" ? e.location : e.person) || "—")}</td>` : ""}
-          <td class="num"><input class="inline-input" value="${num(e.amount)}" onchange="updExpense(${i},this.value)"></td>
-          <td><button class="icon-btn" title="Edit" onclick="editExpense(${i})">✎</button>
-              <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`).join("")
-          || `<tr><td colspan="4" class="muted">No entries yet — click + Add.</td></tr>`}
-        </tbody></table></div></div>`;
+        <tbody>${paged.html || `<tr><td colspan="4" class="muted">No entries yet — click + Add.</td></tr>`}
+        </tbody></table></div>${paged.footer}</div>`;
     }).join("") || '<div class="panel"><div class="empty">No expenses yet.</div></div>');
 };
 function addExpenseSection(g) {
@@ -1419,6 +1457,12 @@ PAGES.investments = () => {
   const total = DB.monthlyInvestments.reduce((s, i) => s + num(i.amount), 0);
   const byPerson = {};
   DB.monthlyInvestments.forEach(i => { const p = i.person || "—"; byPerson[p] = (byPerson[p] || 0) + num(i.amount); });
+  const paged = pagedRows("minv", DB.monthlyInvestments.map((iv, i) => [iv, i]), ([iv, i]) => `
+      <tr><td>${esc(iv.category)}</td><td>${esc(iv.person || "—")}</td>
+      <td><span class="chip ${iv.deductedFrom === "CTC" ? "amber" : iv.deductedFrom === "GROSS" ? "gray" : "green"}">${esc(iv.deductedFrom || "IN HAND")}</span></td>
+      <td class="num"><input class="inline-input" value="${num(iv.amount)}" onchange="updInvestment(${i},this.value)"></td>
+      <td><button class="icon-btn" onclick="editInvestment(${i})">✎</button>
+          <button class="icon-btn danger" onclick="delInvestment(${i})">✕</button></td></tr>`);
   return pageHead("Monthly Investments / Savings",
     `Total committed per month: <b>${fmtMoney(total)}</b>`,
     `<button class="btn" onclick="addInvestment()">+ Add</button>`) + `
@@ -1433,14 +1477,9 @@ PAGES.investments = () => {
       <th>Held in name of${info("Whose name the investment is under — not necessarily the earner. Family-level commitment.")}</th>
       <th>Deducted From${info("Where it leaves the family salary: IN HAND = from spendable income; GROSS / CTC = before in-hand (e.g. EPF, employer NPS).")}</th>
       <th class="num">Monthly</th><th style="width:70px"></th></tr></thead>
-    <tbody>${DB.monthlyInvestments.map((iv, i) => `
-      <tr><td>${esc(iv.category)}</td><td>${esc(iv.person || "—")}</td>
-      <td><span class="chip ${iv.deductedFrom === "CTC" ? "amber" : iv.deductedFrom === "GROSS" ? "gray" : "green"}">${esc(iv.deductedFrom || "IN HAND")}</span></td>
-      <td class="num"><input class="inline-input" value="${num(iv.amount)}" onchange="updInvestment(${i},this.value)"></td>
-      <td><button class="icon-btn" onclick="editInvestment(${i})">✎</button>
-          <button class="icon-btn danger" onclick="delInvestment(${i})">✕</button></td></tr>`).join("")}
+    <tbody>${paged.html}
       <tr class="subtotal"><td colspan="3">Total</td><td class="num">${fmtMoney(total)}</td><td></td></tr>
-    </tbody></table></div>
+    </tbody></table></div>${paged.footer}
   </div>`;
 };
 function investmentFields(iv) {
@@ -1513,10 +1552,35 @@ PAGES.portfolio = () => {
   const holdingGains = DB.portfolio.map(p => ({ label: p.category, value: num(p.currentValue) - num(p.invested) }))
     .filter(x => x.value !== 0).sort((a, b) => b.value - a.value);
 
+  const goldPaged = pagedRows("gold", DB.gold.map((g, i) => [g, i]), ([g, i]) => {
+    const cur = num(g.grams) * num(g.perGramValue);
+    const hasBuy = g.purchasePrice !== null && g.purchasePrice !== undefined && num(g.purchasePrice) > 0;
+    const inv = hasBuy ? num(g.grams) * num(g.purchasePrice) : 0;
+    const gain = hasBuy ? cur - inv : null;
+    /* Buy Price/g + Current/g are money (format like Total Value/Gain, which already use
+       fmtMoney below); Grams is a quantity, left as a plain editable number. hideValues
+       folds these into static formatted text so they match the already-masked Gain cell. */
+    const buyCell = hideValues
+      ? `<td class="num">${hasBuy ? fmtMoney(num(g.purchasePrice)) : "—"}</td>`
+      : `<td class="num"><input class="inline-input" value="${hasBuy ? num(g.purchasePrice).toLocaleString("en-IN") : ""}"
+        placeholder="—" onchange="updGold(${i},'purchasePrice',this.value||null)"></td>`;
+    const curPriceCell = hideValues
+      ? `<td class="num">${fmtMoney(num(g.perGramValue))}</td>`
+      : `<td class="num"><input class="inline-input" value="${num(g.perGramValue).toLocaleString("en-IN")}" onchange="updGold(${i},'perGramValue',this.value)"></td>`;
+    return `<tr><td>${esc(g.person)}</td>
+      <td class="num"><input class="inline-input" value="${num(g.grams)}" onchange="updGold(${i},'grams',this.value)"></td>
+      ${buyCell}
+      ${curPriceCell}
+      <td class="num">${fmtMoney(cur)}</td>
+      <td class="num ${gain !== null ? (gain >= 0 ? "pos" : "neg") : ""}">${gain !== null ? fmtMoney(gain) : "—"}</td>
+      <td><button class="icon-btn danger" onclick="delGold(${i})">✕</button></td></tr>`;
+  });
+
   return pageHead("Portfolio",
     `Current <b>${fmtMoney(totCur)}</b> (incl. gold) on invested ${fmtMoney(totInv)}`,
     `<button class="btn" onclick="addHolding()">+ Add Holding</button>
      <button class="btn secondary" onclick="addGold()">+ Add Gold</button>`) +
+  (DB.liveRowsError ? `<div class="page-note warn">⚠&nbsp;<div><b>Live investment sync issue:</b> ${esc(DB.liveRowsError)} — showing the last values we have.</div></div>` : "") +
   `<div class="page-note">ⓘ&nbsp;<div>Holdings track <b>invested vs current value</b> per owner; <b>Maturity</b> shows the owner's age and the year an instrument unlocks (set a date of birth in Settings). Physical gold values use one current rate you can auto-fetch or set for all rows.</div></div>` +
 
   /* ---- TOP: family asset allocation by class ---- */
@@ -1536,28 +1600,41 @@ PAGES.portfolio = () => {
     const cur = items.reduce((s, [p]) => s + num(p.currentValue), 0);
     const inv = items.reduce((s, [p]) => s + num(p.invested), 0);
     const birthYear = personBirthYear(o);
+    const paged = pagedRows(`portfolio:${o}`, items, ([p, i]) => {
+      const roi = num(p.invested) ? (num(p.currentValue) - num(p.invested)) / num(p.invested) : 0;
+      const m = maturityInfo(p, birthYear, new Date().getFullYear());
+      /* liveSync rows are server-injected from synced broker/NSE accounts (invest.html);
+         client edits to invested/currentValue are discarded server-side on save, so show
+         them read-only with a badge instead of editable inputs + edit/delete actions. */
+      /* hideValues: fold into the same "static formatted" branch as liveSync so a hidden
+         row matches its own (already-masked) Return% cell instead of leaking raw digits. */
+      const invCell = (p.liveSync || hideValues) ? `<td class="num">${fmtMoney(num(p.invested))}</td>`
+        : `<td class="num"><input class="inline-input" value="${num(p.invested).toLocaleString("en-IN")}" onchange="updHolding(${i},'invested',this.value)"></td>`;
+      const curCell = (p.liveSync || hideValues) ? `<td class="num">${fmtMoney(num(p.currentValue))}</td>`
+        : `<td class="num"><input class="inline-input" value="${num(p.currentValue).toLocaleString("en-IN")}" onchange="updHolding(${i},'currentValue',this.value)"></td>`;
+      const actionsCell = p.liveSync
+        ? `<td><span class="chip live" title="${esc(p.category)} · synced ${p.lastSynced ? fmtDateTime(p.lastSynced) : "—"}">⟳ live</span></td>`
+        : `<td><button class="icon-btn" onclick="editHolding(${i})">✎</button>
+              <button class="icon-btn danger" onclick="delHolding(${i})">✕</button></td>`;
+      return `<tr><td><b>${esc(p.category)}</b>${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}</td>
+          <td><span class="chip gray">${esc(p.subCategory || "—")}</span></td>
+          ${invCell}
+          ${curCell}
+          <td class="num ${roi >= 0 ? "pos" : "neg"}">${fmtPct(roi)}</td>
+          <td class="num">${m.age != null ? m.age + " yrs" : "—"}</td>
+          <td class="num">${m.year != null ? m.year : "—"}</td>
+          ${actionsCell}</tr>`;
+    });
     return `<div class="panel"><h2>${esc(o)}'s Holdings
       <span class="chip ${cur >= inv ? "green" : "red"}">${fmtMoney(cur)} · ${inv ? fmtPct((cur - inv) / inv) : "–"}</span></h2>
     <div class="table-wrap"><table>
       <thead><tr><th>Asset</th><th>Class</th><th class="num">Invested</th><th class="num">Current</th><th class="num">Return</th>
         <th class="num">Matures (age)${info("Owner's age when this holding matures/unlocks. Needs the owner's date of birth (set it in Settings).")}</th>
         <th class="num">Matures (year)</th><th style="width:70px"></th></tr></thead>
-      <tbody>${items.map(([p, i]) => {
-        const roi = num(p.invested) ? (num(p.currentValue) - num(p.invested)) / num(p.invested) : 0;
-        const m = maturityInfo(p, birthYear, new Date().getFullYear());
-        return `<tr><td><b>${esc(p.category)}</b>${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}</td>
-          <td><span class="chip gray">${esc(p.subCategory || "—")}</span></td>
-          <td class="num"><input class="inline-input" value="${num(p.invested)}" onchange="updHolding(${i},'invested',this.value)"></td>
-          <td class="num"><input class="inline-input" value="${num(p.currentValue)}" onchange="updHolding(${i},'currentValue',this.value)"></td>
-          <td class="num ${roi >= 0 ? "pos" : "neg"}">${fmtPct(roi)}</td>
-          <td class="num">${m.age != null ? m.age + " yrs" : "—"}</td>
-          <td class="num">${m.year != null ? m.year : "—"}</td>
-          <td><button class="icon-btn" onclick="editHolding(${i})">✎</button>
-              <button class="icon-btn danger" onclick="delHolding(${i})">✕</button></td></tr>`;
-      }).join("")}
+      <tbody>${paged.html}
       <tr class="subtotal"><td colspan="2">Subtotal</td><td class="num">${fmtMoney(inv)}</td><td class="num">${fmtMoney(cur)}</td>
         <td class="num">${inv ? fmtPct((cur - inv) / inv) : "–"}</td><td></td><td></td><td></td></tr>
-      </tbody></table></div></div>`;
+      </tbody></table></div>${paged.footer}</div>`;
   }).join("") + `
   <div class="panel">
     <h2>Physical Gold <span class="chip amber">${fmtMoney(gold)}</span>
@@ -1572,24 +1649,11 @@ PAGES.portfolio = () => {
     </div>` : ""}
     <div class="table-wrap"><table>
       <thead><tr><th>Person</th><th class="num">Grams</th><th class="num">Buy Price/g</th><th class="num">Current/g</th><th class="num">Total Value</th><th class="num">Gain/Loss</th><th style="width:50px"></th></tr></thead>
-      <tbody>${DB.gold.map((g, i) => {
-        const cur = num(g.grams) * num(g.perGramValue);
-        const hasBuy = g.purchasePrice !== null && g.purchasePrice !== undefined && num(g.purchasePrice) > 0;
-        const inv = hasBuy ? num(g.grams) * num(g.purchasePrice) : 0;
-        const gain = hasBuy ? cur - inv : null;
-        return `<tr><td>${esc(g.person)}</td>
-          <td class="num"><input class="inline-input" value="${num(g.grams)}" onchange="updGold(${i},'grams',this.value)"></td>
-          <td class="num"><input class="inline-input" value="${g.purchasePrice !== null && g.purchasePrice !== undefined ? num(g.purchasePrice) : ""}"
-            placeholder="—" onchange="updGold(${i},'purchasePrice',this.value||null)"></td>
-          <td class="num"><input class="inline-input" value="${num(g.perGramValue)}" onchange="updGold(${i},'perGramValue',this.value)"></td>
-          <td class="num">${fmtMoney(cur)}</td>
-          <td class="num ${gain !== null ? (gain >= 0 ? "pos" : "neg") : ""}">${gain !== null ? fmtMoney(gain) : "—"}</td>
-          <td><button class="icon-btn danger" onclick="delGold(${i})">✕</button></td></tr>`;
-      }).join("")}
+      <tbody>${goldPaged.html}
       <tr class="subtotal"><td>Total</td><td class="num">${fmtNum(totalGrams)} g</td><td></td>
         <td></td><td class="num">${fmtMoney(gold)}</td>
         <td class="num ${gg.inv > 0 ? (gg.gain >= 0 ? "pos" : "neg") : ""}">${gg.inv > 0 ? fmtMoney(gg.gain) : "—"}</td><td></td></tr>
-      </tbody></table></div>
+      </tbody></table></div>${goldPaged.footer}
     <p class="muted small mt">Buy Price/g: price paid per gram when purchased — used to calculate investment gain.</p>
   </div>
 
@@ -1657,9 +1721,12 @@ function addGold() {
     { name: "person", label: "Person", type: "combo", listKey: "persons", required: true },
     { type: "row", fields: [
       { name: "grams", label: "Grams", type: "number", step: "any", required: true },
-      { name: "perGramValue", label: "Per-gram value", type: "number", step: "any", required: true }]},
+      { name: "perGramValue", label: "Current value / g", type: "number", step: "any", required: true }]},
+    { name: "purchasePrice", label: "Buy price / g (optional — enables gain)", type: "number", step: "any" },
   ], v => {
-    DB.gold.push({ id: uid(), person: v.person, grams: num(v.grams), perGramValue: num(v.perGramValue) });
+    const buy = String(v.purchasePrice || "").trim();
+    DB.gold.push({ id: uid(), person: v.person, grams: num(v.grams), perGramValue: num(v.perGramValue),
+      purchasePrice: buy ? num(buy) : null });
     closeModal(); save(); render();
   });
 }
@@ -1845,18 +1912,32 @@ function reopenLoan(i) { DB.loans[i].status = "active"; save(); render(); }
 function delLoan(i) {
   confirmModal(`Delete loan "${DB.loans[i].name}" permanently?`, () => { DB.loans.splice(i, 1); save(); render(); });
 }
+/* ── amortization modal: capped at AMORT_PAGE rows; render() doesn't rebuild
+   modals, so "show more" here bumps amortLimit and re-invokes showAmort directly ── */
+const AMORT_PAGE = 120;
+let amortLimit = AMORT_PAGE;
+let amortExtra = 0;          // stashed extra-payment value so amortMore() can re-invoke showAmort with it
+let amortKeepLimit = false;  // true only while amortMore() is re-invoking showAmort, to preserve the bumped limit
 function showAmort(i, extraMonthly) {
   const L = DB.loans[i];
   extraMonthly = extraMonthly || 0;
+  amortExtra = extraMonthly;
+  if (!amortKeepLimit) amortLimit = AMORT_PAGE;
+  amortKeepLimit = false;
   const st = loanState(L);
   const base = amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null, 0, L.prepayments);
   const what = extraMonthly ? amortSchedule(num(L.principal), num(L.annualRate), num(L.tenureMonths), st.emi || null, extraMonthly, L.prepayments) : base;
   const saved = base.totalInterest - what.totalInterest;
-  const rows = what.rows.map(r => `
+  const shownRows = what.rows.slice(0, amortLimit);
+  const rest = what.rows.length - shownRows.length;
+  const rows = shownRows.map(r => `
     <tr${r.m === st.paidMonths ? ' style="border-bottom:2px solid var(--accent)"' : ""}>
       <td class="num">${r.m}${r.m <= st.paidMonths ? ' <span class="chip green" style="font-size:10px">paid</span>' : ""}</td>
       <td class="num">${fmtMoney(r.emi)}</td><td class="num">${fmtMoney(r.principal)}</td>
       <td class="num">${fmtMoney(r.interest)}</td><td class="num">${fmtMoney(r.balance)}</td></tr>`).join("");
+  const more = rest > 0
+    ? `<div class="load-more"><button class="btn ghost" onclick="amortMore(${i})">Show ${Math.min(AMORT_PAGE, rest)} more · ${rest} remaining</button></div>`
+    : "";
   openModal(`
     <h3>Amortization — ${esc(L.name)}</h3>
     <div class="loan-meta" style="margin-top:0">
@@ -1876,8 +1957,14 @@ function showAmort(i, extraMonthly) {
     <div class="table-wrap" style="max-height:46vh;overflow-y:auto">
       <table><thead><tr><th class="num">#</th><th class="num">Payment</th><th class="num">Principal</th><th class="num">Interest</th><th class="num">Balance</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
+    ${more}
     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Close</button></div>`, true);
   el("#applyExtra").onclick = () => showAmort(i, num(el("#extraIn").value));
+}
+function amortMore(i) {
+  amortLimit += AMORT_PAGE;
+  amortKeepLimit = true;
+  showAmort(i, amortExtra);
 }
 function exportAmortCSV(i, extraMonthly) {
   const L = DB.loans[i];
@@ -1916,6 +2003,25 @@ function attachDocToLoan(loanId) { addDocument({ linkedType: "loan", linkedId: l
 /* Standalone tracker of money lent to / borrowed from specific people.
    Intentionally NOT added to net worth / liabilities — it lives only on this page. */
 let lendingPerson = null;   // active person id
+let lendingYear = null;     // active year tab (per selected person)
+
+/* ── paged lists: no table renders more than PAGE_SIZE rows at once ──
+   pagedRows(key, rows, renderRow) returns {html, footer}; the footer holds a
+   "Show more" button that raises this key's limit. Limits reset on navigate(). */
+const PAGE_SIZE = 25;
+let _pageLimits = {};
+function pagedRows(key, rows, renderRow) {
+  const limit = _pageLimits[key] || PAGE_SIZE;
+  const shown = rows.slice(0, limit);
+  const rest = rows.length - shown.length;
+  return {
+    html: shown.map(renderRow).join(""),
+    footer: rest > 0
+      ? `<div class="load-more"><button class="btn ghost" onclick="loadMore('${key}')">Show ${Math.min(rest, PAGE_SIZE)} more · ${rest} remaining</button></div>`
+      : "",
+  };
+}
+function loadMore(key) { _pageLimits[key] = (_pageLimits[key] || PAGE_SIZE) + PAGE_SIZE; render(); }
 
 function ledgerById(id) { return DB.ledgers.find(L => L.id === id) || null; }
 function activeLedger() {
@@ -1935,34 +2041,38 @@ PAGES.lending = () => {
       <div class="empty">No people yet — click <b>+ Add Person</b> to start a ledger.</div>`;
   }
   const L = activeLedger();
-  const t = ledgerTotals(L.transactions);
   const tabs = DB.ledgers.map(p => {
     const pt = ledgerTotals(p.transactions);
-    const tag = pt.direction === "receive" ? "+" : pt.direction === "owe" ? "−" : "";
+    const nzYears = pt.byYear.filter(y => Math.abs(y.net) > 0.5).length;
     return `<button class="ltab${p.id === L.id ? " active" : ""}" onclick="selectLedger('${p.id}')">
-      ${esc(p.person)} <span class="small muted">${tag}${fmtMoney(pt.abs)}</span></button>`;
+      ${esc(p.person)} <span class="small muted">${p.transactions.length} txns${nzYears ? ` · ${nzYears} active yr${nzYears > 1 ? "s" : ""}` : ""}</span></button>`;
   }).join("");
-  const banner = t.direction === "receive"
-    ? `<div class="ledger-banner receive"><div class="lb-label">${esc(L.person)} owes you</div><div class="lb-amt">${fmtMoney(t.abs)}</div><div class="small muted">you'll receive</div></div>`
-    : t.direction === "owe"
-    ? `<div class="ledger-banner owe"><div class="lb-label">You owe ${esc(L.person)}</div><div class="lb-amt">${fmtMoney(t.abs)}</div><div class="small muted">you'll pay</div></div>`
-    : `<div class="ledger-banner settled"><div class="lb-label">Settled with ${esc(L.person)}</div><div class="lb-amt">${fmtMoney(0)}</div><div class="small muted">nothing outstanding</div></div>`;
-  const kpis = `<div class="ledger-kpis">
-    <div class="kpi"><div class="label">Net lent</div><div class="value">${fmtMoney(t.lent)}</div></div>
-    <div class="kpi"><div class="label">Total repaid</div><div class="value">${fmtMoney(t.repaid)}</div></div>
-    <div class="kpi"><div class="label">Cashback saved</div><div class="value">${fmtMoney(t.cashback)}</div></div>
-    <div class="kpi"><div class="label">Transactions</div><div class="value">${t.count}${t.cancelled ? ` <span class="small muted">(${t.cancelled} void)</span>` : ""}</div></div>
-  </div>`;
   const rowsByYear = {};
   L.transactions.forEach((tx, i) => {
     const y = ledgerYear(tx.date) || "—";
     (rowsByYear[y] = rowsByYear[y] || []).push([tx, i]);
   });
   const years = Object.keys(rowsByYear).sort((a, b) => (a === "—" ? 1 : b === "—" ? -1 : b - a));
-  const yearBlocks = years.map(y => {
-    const list = rowsByYear[y].slice().sort((a, b) => (String(a[0].date) < String(b[0].date) ? 1 : -1));
+  // one year at a time: a tab per year (with its own aggregation), never merged
+  const activeYear = years.includes(lendingYear) ? lendingYear : years[0];
+  const yearTabs = years.map(y => {
+    const yt = ledgerTotals(rowsByYear[y].map(([tx]) => tx));
+    const nz = Math.abs(yt.net) > 0.5;
+    const scls = !nz ? " zero" : yt.net > 0 ? " pos" : " neg";
+    return `<button class="ltab year${scls}${y === activeYear ? " active" : ""}" onclick="selectLedgerYear('${y}')">
+      ${y} <span class="small muted">${nz ? ledgerSigned(yt.net) : "settled"} · ${yt.count}</span></button>`;
+  }).join("");
+  let yearView = "";
+  if (activeYear !== undefined) {
+    const list = rowsByYear[activeYear].slice().sort((a, b) => (String(a[0].date) < String(b[0].date) ? 1 : -1));
     const ytot = ledgerTotals(list.map(([tx]) => tx));
-    const body = list.map(([tx, i]) => {
+    const ysum = `<div class="ledger-kpis year">
+      <div class="kpi"><div class="label">${activeYear} lent</div><div class="value">${fmtMoney(ytot.lent)}</div></div>
+      <div class="kpi"><div class="label">${activeYear} repaid</div><div class="value">${fmtMoney(ytot.repaid)}</div></div>
+      <div class="kpi"><div class="label">${activeYear} cashback</div><div class="value">${fmtMoney(ytot.cashback)}</div></div>
+      <div class="kpi"><div class="label">${activeYear} net</div><div class="value">${ledgerSigned(ytot.net)}</div></div>
+    </div>`;
+    const paged = pagedRows(`lending:${L.id}:${activeYear}`, list, ([tx, i]) => {
       const cb = ledgerCashback(tx), net = ledgerNet(tx);
       return `<tr class="${tx.cancelled ? "row-cancelled" : ""}">
         <td>${fmtDate(tx.date)}</td>
@@ -1971,31 +2081,35 @@ PAGES.lending = () => {
         <td class="num">${fmtMoney(num(tx.amount))}</td>
         <td class="num">${cb ? fmtMoney(cb) + (tx.cashbackMode === "percent" ? ` <span class="small muted">(${fmtNum(num(tx.cashback))}%)</span>` : "") : "–"}</td>
         <td class="num">${num(tx.extraCharges) ? fmtMoney(num(tx.extraCharges)) : "–"}</td>
-        <td class="num">${tx.cancelled ? `<span class="chip gray">void</span>` : ledgerSigned(net)}</td>
+        <td class="num">${tx.cancelled
+          ? `<span class="chip gray">void</span>${num(tx.extraCharges) ? " " + ledgerSigned(net) + '<div class="small muted">fee</div>' : ""}`
+          : ledgerSigned(net)}</td>
         <td class="row-actions">
           <button class="icon-btn" title="Edit" onclick="editLedgerTx('${L.id}',${i})">✎</button>
           <button class="icon-btn danger" title="Delete" onclick="delLedgerTx('${L.id}',${i})">✕</button>
         </td></tr>`;
-    }).join("");
-    return `<div class="ledger-year">
-      <div class="ly-head"><h3>${y}</h3><div class="small muted">net ${ledgerSigned(ytot.net)} · ${ytot.count} txn${ytot.count === 1 ? "" : "s"}</div></div>
+    });
+    yearView = `<div class="section-title" style="margin-top:6px">Balance by year — ${esc(L.person)}
+        <span class="small muted" style="font-weight:400">· each year stands alone (carried forward manually), so they're not summed · non-zero years highlighted</span></div>
+      <div class="ltabs years">${yearTabs}</div>
+      ${ysum}
       <div class="table-wrap"><table>
         <thead><tr><th>Date</th><th>Type</th><th>Instrument / note</th><th class="num">Amount</th><th class="num">Cashback</th><th class="num">Extra</th><th class="num">Net</th><th></th></tr></thead>
-        <tbody>${body}</tbody></table></div></div>`;
-  }).join("");
+        <tbody>${paged.html}</tbody></table></div>${paged.footer}`;
+  }
   return head + `
     <div class="ltabs">${tabs}</div>
-    <div class="ledger-top">${banner}${kpis}</div>
-    <div class="page-note">ⓘ&nbsp;<div><b>debit</b> = you paid on their behalf (they owe you) · <b>credit</b> = a repayment · <b>cancelled</b> voids the row · cashback (flat or %) reduces what they owe. These balances are standalone and not part of your net worth.</div></div>
+    <div class="page-note">ⓘ&nbsp;<div><b>debit</b> = you paid on their behalf (they owe you) · <b>credit</b> = a repayment · <b>cancelled</b> voids the row · cashback (flat or %) reduces what they owe. Balances are shown <b>per year</b> — not summed into one running total, since carry-forwards are entered by hand — and are standalone, not part of your net worth.</div></div>
     <div class="head-actions" style="margin:10px 0 4px">
       <button class="btn" onclick="addLedgerTx('${L.id}')">+ Add Transaction</button>
       <button class="btn ghost" onclick="renameLedgerPerson('${L.id}')">Rename</button>
       <button class="btn ghost danger" onclick="delLedgerPerson('${L.id}')">Delete person</button>
     </div>
-    ${L.transactions.length ? yearBlocks : '<div class="empty">No transactions yet for ' + esc(L.person) + '.</div>'}`;
+    ${L.transactions.length ? yearView : '<div class="empty">No transactions yet for ' + esc(L.person) + '.</div>'}`;
 };
 
-function selectLedger(id) { lendingPerson = id; render(); }
+function selectLedger(id) { lendingPerson = id; lendingYear = null; render(); }
+function selectLedgerYear(y) { lendingYear = y; render(); }
 function addLedgerPerson() {
   formModal("Add person", [{ name: "person", label: "Person's name", required: true }], v => {
     const L = { id: uid(), person: v.person, transactions: [] };
@@ -2089,14 +2203,17 @@ PAGES.goals = () => {
         <button class="icon-btn" title="Refresh market price via AI" id="gpBtn${i}" onclick="refreshGoalPrice(${i})">⟳</button>
         <button class="icon-btn danger" onclick="delGoal(${i})">✕</button></td></tr>`;
   };
-  const tbl = items => `<div class="table-wrap"><table>
+  const tbl = (items, key) => {
+    const paged = pagedRows(key, items, row);
+    return `<div class="table-wrap"><table>
     <thead><tr><th>Goal</th><th class="num">Value</th><th class="num">Down Payment</th><th class="num">Loan</th><th class="num">EMI</th><th>Target</th><th>Status</th><th></th></tr></thead>
-    <tbody>${items.map(row).join("")}</tbody></table></div>`;
+    <tbody>${paged.html}</tbody></table></div>${paged.footer}`;
+  };
   return pageHead("Goals & Future Purchases", `Planned spending ahead: <b>${fmtMoney(totOpen)}</b>`,
     `<button class="btn" onclick="addGoal()">+ Add Goal</button>`) +
     `<div class="page-note">ⓘ&nbsp;<div>Plan future purchases with down-payment / loan / EMI. The <b>⟳</b> button fetches today's market price via AI (when a Gemini key is set); otherwise the value you entered is kept. <b>⇒</b> turns a goal into a live loan.</div></div>` +
-    `<div class="panel"><h2>Planned</h2>${open.length ? tbl(open) : '<div class="empty">Nothing planned.</div>'}</div>` +
-    (done.length ? `<div class="panel"><h2>Fulfilled</h2>${tbl(done)}</div>` : "");
+    `<div class="panel"><h2>Planned</h2>${open.length ? tbl(open, "goals:open") : '<div class="empty">Nothing planned.</div>'}</div>` +
+    (done.length ? `<div class="panel"><h2>Fulfilled</h2>${tbl(done, "goals:done")}</div>` : "");
 };
 function goalFields(g) {
   g = g || {};
@@ -2200,24 +2317,7 @@ PAGES.cards = () => {
   });
   const activeN = DB.cards.filter(c => c.status !== "closed").length;
   const feesTotal = DB.cards.filter(c => c.status !== "closed").reduce((s, c) => s + num(c.fees), 0);
-  return pageHead("Cards", `${activeN} active card(s) · annual fees ${fmtMoney(feesTotal)} · details stay in your local data file`,
-    `<button class="btn" onclick="addCard()">+ Add Card</button>`) + `
-  <div class="page-note">ⓘ&nbsp;<div>Card numbers, CVV and PIN are <b>masked by default</b> — click <b>👁</b> on a card to reveal. Everything stays in your local data file; nothing is sent anywhere. Filter by bank, owner, type or status below.</div></div>
-  <div class="filter-bar">
-    <select onchange="cardFilter.bank=this.value;render()">
-      <option value="">All banks</option>${banks.map(b => `<option value="${esc(b)}"${cardFilter.bank === b ? " selected" : ""}>${esc(b)}</option>`).join("")}
-      ${hasNoBank ? `<option value="__none__"${cardFilter.bank === "__none__" ? " selected" : ""}>${NO_BANK}</option>` : ""}</select>
-    <select onchange="cardFilter.owner=this.value;render()">
-      <option value="">All owners</option>${owners.map(o => `<option${cardFilter.owner === o ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>
-    <select onchange="cardFilter.type=this.value;render()">
-      <option value="">All types</option>${types.map(t => `<option${cardFilter.type === t ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>
-    <select onchange="cardFilter.status=this.value;render()">
-      <option value="active"${cardFilter.status === "active" ? " selected" : ""}>Active</option>
-      <option value="closed"${cardFilter.status === "closed" ? " selected" : ""}>Closed</option>
-      <option value=""${cardFilter.status === "" ? " selected" : ""}>All</option></select>
-    <input placeholder="Search…" value="${esc(cardFilter.q)}" oninput="cardFilter.q=this.value;render()" style="max-width:180px">
-  </div>
-  <div class="grid card-grid">${list.map(([c, i]) => {
+  const cardsPaged = pagedRows("cards", list, ([c, i]) => {
     const r = revealed[c.id];
     return `<div class="pay-card${c.status === "closed" ? " closed" : ""}" style="background:${cardColor(c)}">
       <div class="pc-top"><div>
@@ -2243,7 +2343,25 @@ PAGES.cards = () => {
         ${c.lounge ? `<div class="small" style="opacity:.85">🛋 ${esc(c.lounge)}${c.loungeCriteria ? " — " + esc(c.loungeCriteria) : ""}</div>` : ""}
         <div class="small" style="opacity:.7;margin-top:4px">${esc(c.owner || "")}</div>
       </div></div>`;
-  }).join("") || '<div class="empty">No cards match the filter.</div>'}</div>`;
+  });
+  return pageHead("Cards", `${activeN} active card(s) · annual fees ${fmtMoney(feesTotal)} · details stay in your local data file`,
+    `<button class="btn" onclick="addCard()">+ Add Card</button>`) + `
+  <div class="page-note">ⓘ&nbsp;<div>Card numbers, CVV and PIN are <b>masked by default</b> — click <b>👁</b> on a card to reveal. Everything stays in your local data file; nothing is sent anywhere. Filter by bank, owner, type or status below.</div></div>
+  <div class="filter-bar">
+    <select onchange="cardFilter.bank=this.value;render()">
+      <option value="">All banks</option>${banks.map(b => `<option value="${esc(b)}"${cardFilter.bank === b ? " selected" : ""}>${esc(b)}</option>`).join("")}
+      ${hasNoBank ? `<option value="__none__"${cardFilter.bank === "__none__" ? " selected" : ""}>${NO_BANK}</option>` : ""}</select>
+    <select onchange="cardFilter.owner=this.value;render()">
+      <option value="">All owners</option>${owners.map(o => `<option${cardFilter.owner === o ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>
+    <select onchange="cardFilter.type=this.value;render()">
+      <option value="">All types</option>${types.map(t => `<option${cardFilter.type === t ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>
+    <select onchange="cardFilter.status=this.value;render()">
+      <option value="active"${cardFilter.status === "active" ? " selected" : ""}>Active</option>
+      <option value="closed"${cardFilter.status === "closed" ? " selected" : ""}>Closed</option>
+      <option value=""${cardFilter.status === "" ? " selected" : ""}>All</option></select>
+    <input placeholder="Search…" value="${esc(cardFilter.q)}" oninput="cardFilter.q=this.value;render()" style="max-width:180px">
+  </div>
+  <div class="grid card-grid">${cardsPaged.html || '<div class="empty">No cards match the filter.</div>'}</div>${cardsPaged.footer}`;
 };
 function toggleReveal(id) { revealed[id] = !revealed[id]; render(); }
 async function copyCardNum(i) {
@@ -2329,19 +2447,20 @@ async function refreshDocList() {
   try { serverFiles = await (await fetch("/api/files")).json(); } catch (e) { serverFiles = []; }
   const box = el("#docList");
   if (!box) return;
-  const fileDocs = serverFiles.map(f => {
+  const filesPaged = pagedRows("docs:files", serverFiles, f => {
     const meta = DB.documents.find(d => d.type === "file" && d.ref === f.name);
     return `<div class="doc-row"><div class="doc-ico">📄</div>
       <div class="doc-main"><a href="/files/${encodeURIComponent(f.name)}" target="_blank">${esc(f.name)}</a>
       <div class="doc-sub">${(f.size / 1024).toFixed(1)} KB · ${fmtDate(f.modified)}${meta && meta.linkedId ? " · " + esc(docLinkedLabel(meta)) : ""}</div></div>
       <button class="icon-btn danger" title="Delete file" onclick="deleteServerFile('${esc(f.name)}')">✕</button></div>`;
-  }).join("");
-  const linkDocs = DB.documents.filter(d => d.type === "link").map(d => `
+  });
+  const linksPaged = pagedRows("docs:links", DB.documents.filter(d => d.type === "link"), d => `
     <div class="doc-row"><div class="doc-ico">🔗</div>
       <div class="doc-main"><a href="${esc(d.ref)}" target="_blank" rel="noopener">${esc(d.title || d.ref)}</a>
       <div class="doc-sub">${esc(d.ref)}${d.linkedId ? " · " + esc(docLinkedLabel(d)) : ""}${d.notes ? " · " + esc(d.notes) : ""}</div></div>
-      <button class="icon-btn danger" onclick="delDocument('${d.id}')">✕</button></div>`).join("");
-  box.innerHTML = (fileDocs + linkDocs) || '<div class="empty">No documents yet.</div>';
+      <button class="icon-btn danger" onclick="delDocument('${d.id}')">✕</button></div>`);
+  const combined = filesPaged.html + filesPaged.footer + linksPaged.html + linksPaged.footer;
+  box.innerHTML = combined || '<div class="empty">No documents yet.</div>';
 }
 function docLinkedLabel(d) {
   if (d.linkedType === "loan") { const L = DB.loans.find(x => x.id === d.linkedId); return L ? "Loan: " + L.name : ""; }
@@ -2434,14 +2553,15 @@ async function refreshBackupList() {
   if (!box) return;
   try {
     const items = await (await fetch("/api/backups")).json();
-    box.innerHTML = items.length ? items.map(b => {
+    const paged = pagedRows("backups", items, b => {
       const kind = b.name.includes("-manual-") ? "manual" : b.name.includes("-prerestore-") ? "pre-restore safety" : "auto (daily)";
       return `<div class="doc-row"><div class="doc-ico">🗄</div>
         <div class="doc-main"><a href="/backups/${encodeURIComponent(b.name)}" target="_blank">${esc(b.name)}</a>
         <div class="doc-sub">${(b.size / 1024).toFixed(1)} KB · ${fmtDateTime(b.modified)} · ${kind}</div></div>
         <button class="btn small secondary" onclick="restoreBackup('${esc(b.name)}')">Restore</button>
         <button class="icon-btn danger" title="Delete backup" onclick="deleteBackup('${esc(b.name)}')">✕</button></div>`;
-    }).join("") : '<div class="empty">No backups yet — one is created on your first save each day, or click "Backup now".</div>';
+    });
+    box.innerHTML = items.length ? (paged.html + paged.footer) : '<div class="empty">No backups yet — one is created on your first save each day, or click "Backup now".</div>';
   } catch (e) { box.innerHTML = '<div class="empty">Could not load backups: ' + esc(e.message) + "</div>"; }
 }
 async function backupNow() {
@@ -2532,9 +2652,20 @@ function syncHideValuesBtn() {
   btn.title = hideValues ? "Values hidden — click to reveal" : "Click to hide all values";
   btn.classList.toggle("hv-hidden", hideValues);
 }
+// keep hide-values in sync when the embedded /invest page (or another tab)
+// toggles it — the key is shared, so mirror the change here live.
+window.addEventListener("storage", e => {
+  if (e.key !== "ffa_hideValues" && e.key !== null) return;
+  const now = localStorage.getItem("ffa_hideValues") === "1";
+  if (now === hideValues) return;
+  hideValues = now;
+  syncHideValuesBtn();
+  render();
+});
 
 /* ================= init ================= */
-els("#nav button").forEach(b => b.onclick = () => navigate(b.dataset.page));
+els("#nav button").forEach(b => b.onclick = () =>
+  b.dataset.href ? (window.location.href = b.dataset.href) : navigate(b.dataset.page));
 loadDB().then(() => {
   el("#brandName").textContent = DB.settings.appName || "Family Finance";
   if (DB.settings.lastUpdated) el("#lastUpdated").textContent = "Updated " + fmtDateTime(DB.settings.lastUpdated);

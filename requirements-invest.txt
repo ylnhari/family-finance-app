@@ -1,0 +1,6 @@
+# Broker/API access (repo-specific exception to the stdlib-only default;
+# Kite Connect Personal plan is free, Upstox API is free)
+kiteconnect
+upstox-python-sdk
+requests
+pyotp  # headless morning token refresh (refresh_tokens.py): TOTP 2FA codes

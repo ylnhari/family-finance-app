@@ -188,7 +188,9 @@ function maturityInfo(h, birthYear, nowYear) {
    Sign convention for the running balance = "what the other person owes you":
      debit  (you paid on their behalf)  -> +(amount + extraCharges - cashback)
      credit (they repaid you)           -> -(amount)
-     cancelled                          -> 0  (voided, regardless of type) */
+     cancelled                          -> +extraCharges  (order voided, so the
+       principal was never lent, but any cancellation fee you still paid counts;
+       usually 0, or just the fee) */
 
 /* resolved cashback in currency for a row: a flat rupee value, or a % of the amount */
 function ledgerCashback(t) {
@@ -198,9 +200,12 @@ function ledgerCashback(t) {
   return num(t.cashback);
 }
 
-/* signed net effect of one row on the balance the other person owes you */
+/* signed net effect of one row on the balance the other person owes you.
+   A cancelled order lends no principal, but a cancellation fee you paid still
+   counts (net = extraCharges — 0 when there was no fee). */
 function ledgerNet(t) {
-  if (!t || t.cancelled) return 0;
+  if (!t) return 0;
+  if (t.cancelled) return num(t.extraCharges);
   const amt = num(t.amount);
   if ((t.type || "debit") === "credit") return -amt;
   return amt + num(t.extraCharges) - ledgerCashback(t);

@@ -5,6 +5,28 @@
   --amber:#a36a00; --amber-soft:#fdf3e0; --radius:12px;
   --shadow:0 1px 3px rgba(20,30,60,.08),0 4px 14px rgba(20,30,60,.05);
 }
+/* dark theme — applied when the shared theme controller (theme.js) sets
+   data-theme="dark" on <html>. Overrides the palette tokens (so the ~60 var()
+   references flip in one place) plus the handful of hardcoded light colors. The
+   navy sidebar/earner panels are already dark, so they carry over unchanged. */
+:root[data-theme="dark"]{
+  --bg:#0e1420; --panel:#161d2d; --ink:#e6ebf5; --muted:#9aa6bd;
+  --line:#273040; --accent:#5b8cff; --accent-soft:#1b2947;
+  --green:#4ade80; --green-soft:#123021; --red:#f4707f; --red-soft:#3a1a20;
+  --amber:#e0a13a; --amber-soft:#33270f;
+  --shadow:0 1px 3px rgba(0,0,0,.45),0 4px 14px rgba(0,0,0,.55);
+  color-scheme:dark;
+}
+:root[data-theme="dark"] tr.subtotal td{background:#1b2334}
+:root[data-theme="dark"] tbody tr:hover{background:#1b2334}
+:root[data-theme="dark"] input,:root[data-theme="dark"] select,:root[data-theme="dark"] textarea{background:#0f1622;border-color:#2c3648}
+:root[data-theme="dark"] .inline-input:hover,:root[data-theme="dark"] .inline-select:hover{background:#0f1622;border-color:#2c3648}
+:root[data-theme="dark"] .chip.gray{background:#232c3d;color:var(--muted)}
+:root[data-theme="dark"] .chip.live{background:#152a44;color:#7fb2f5}
+:root[data-theme="dark"] .modal{background:var(--panel)}
+:root[data-theme="dark"] .bar-row .bar-track,:root[data-theme="dark"] .progress{background:#232c3d}
+:root[data-theme="dark"] .drop-zone{border-color:#39435a}
+
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
 #app{display:flex;min-height:100vh}
@@ -48,6 +70,15 @@ body{font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;ba
 .two-col{grid-template-columns:1fr 1fr}
 @media(max-width:980px){.two-col{grid-template-columns:1fr}#main{padding:20px 14px}}
 
+/* ---------- embedded Live Investments tab ---------- */
+.live-host{flex:1;min-width:0;position:sticky;top:0;height:100vh;overflow:hidden}
+.live-frame{display:block;width:100%;height:100%;border:0}
+
+/* ---------- live-synced portfolio rows ---------- */
+.chip.live{background:#e3f0fd;color:#1670c9;display:inline-flex;align-items:center;gap:4px;cursor:default}
+.page-note.warn{background:var(--amber-soft);color:var(--amber)}
+.page-note.warn b{color:var(--amber)}
+
 /* ---------- tables ---------- */
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:7px 10px;border-bottom:2px solid var(--line);white-space:nowrap}
@@ -76,7 +107,7 @@ label.fld span{display:block;margin-bottom:4px}
 .fld-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .inline-input{border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:110px;text-align:right;font-variant-numeric:tabular-nums}
 .inline-input:hover{border-color:#ccd4e2;background:#fff}
-.inline-input.wide{width:100%;text-align:left}
+.inline-input.wide{width:100%;min-width:150px;text-align:left}
 .inline-select{font:inherit;font-size:13px;border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:auto;color:var(--ink)}
 .inline-select:hover{border-color:#ccd4e2;background:#fff}
 
@@ -164,6 +195,14 @@ label.fld span{display:block;margin-bottom:4px}
 .ltab{font:inherit;font-size:13.5px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:99px;padding:7px 14px;cursor:pointer}
 .ltab:hover{border-color:var(--accent)}
 .ltab.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.ltabs.years{margin:14px 0 10px}
+.ltab.year{font-size:12.5px;padding:5px 12px}
+.ltab.year.zero{opacity:.5}
+.ltab.year.pos{border-color:color-mix(in srgb,var(--green) 45%,var(--line));background:color-mix(in srgb,var(--green) 8%,var(--panel))}
+.ltab.year.neg{border-color:color-mix(in srgb,var(--red) 45%,var(--line));background:color-mix(in srgb,var(--red) 8%,var(--panel))}
+.ltab.year.active{opacity:1}
+.ledger-kpis.year{margin:6px 0 10px}
+.load-more{display:flex;justify-content:center;margin:10px 0 2px}
 .ledger-top{display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:14px;margin-bottom:16px;align-items:stretch}
 .ledger-banner{border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;justify-content:center}
 .ledger-banner.receive{background:var(--green-soft)}

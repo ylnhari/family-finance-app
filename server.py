@@ -22,12 +22,18 @@ import time
 import urllib.request
 import urllib.error
 import webbrowser
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
+
+import config as invest_config  # side effect: loads .env (GEMINI_API_KEY, broker keys)
+import invest_api
+from investlib import bridge as invest_bridge
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(APP_DIR, "public")
+DOCS_DIR = os.path.join(APP_DIR, "docs")  # BROKER-SETUP.md / NOTIFICATIONS.md, served read-only
 SAMPLE_FILE = os.path.join(APP_DIR, "samples", "demo-finances.json")  # committed demo dataset
 DEFAULT_DATA_DIR = os.path.join(APP_DIR, "data")
 DEMO_DATA_DIR = os.path.join(APP_DIR, "demo-data")  # throwaway sandbox for --demo (gitignored)
@@ -47,6 +53,7 @@ MIME = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".gif": "image/gif", ".svg": "image/svg+xml", ".ico": "image/x-icon",
     ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
     ".csv": "text/csv; charset=utf-8",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -325,6 +332,40 @@ def backups_dir():
     return os.path.join(DATA_DIR, "backups")
 
 
+# ── finances.json access for invest_api (owner -> settings.persons) ─────────
+# invest_api.py has no direct knowledge of finances.json; these two callbacks
+# are handed to it via invest_api.set_finances_hooks() in main() so the owner
+# endpoint can read/append settings.persons through the same locked write
+# path do_PUT uses, while keeping invest_api importable/testable standalone.
+
+def _finances_persons():
+    try:
+        with open(data_file(), "r", encoding="utf-8") as f:
+            doc = json.load(f)
+        return list(doc.get("settings", {}).get("persons", []))
+    except Exception:
+        return []
+
+
+def _finances_add_person(name):
+    if not name:
+        return
+    with file_lock(data_file()):
+        try:
+            with open(data_file(), "r", encoding="utf-8") as f:
+                doc = json.load(f)
+        except Exception:
+            return
+        persons = doc.setdefault("settings", {}).setdefault("persons", [])
+        if name in persons:
+            return
+        persons.append(name)
+        tmp = data_file() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(doc, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, data_file())
+
+
 def ensure_data(seed_file=None):
     """Create the data dir tree. If finances.json is absent, seed it from seed_file
     (the demo dataset) when given, otherwise from the empty scaffold."""
@@ -340,6 +381,44 @@ def ensure_data(seed_file=None):
         with open(data_file(), "w", encoding="utf-8") as f:
             json.dump(EMPTY_DATA, f, indent=2)
         print("  Created new empty data file: " + data_file())
+
+
+# The complete set of owner names the demo seeder may use. 100% fake — NEVER a
+# real account owner. Arjun/Priya are the demo finances persons (from
+# samples/demo-finances.json); Rohan is an extra so the demo shows three owners.
+# The demo-owner guard test asserts every seeded owner is in this allowlist.
+FAKE_DEMO_OWNERS = ("Arjun", "Priya", "Rohan")
+
+
+def ensure_demo_invest_data():
+    """Seed a small, entirely fake investment dataset for --demo: three fake
+    accounts (two brokers + a bond account) owned by a fake family, so the demo
+    shows a populated multi-account view. Goes through investlib itself so it is
+    always schema-correct; the real data/ is never touched, and no real account
+    owner ever appears (see FAKE_DEMO_OWNERS)."""
+    from investlib import ipo as invest_ipo, portfolio as invest_portfolio, store as invest_store
+    if (invest_config.DATA_DIR / "holdings.json").exists():
+        return
+    invest_store.create_account("kite-1", "kite", label="Kite — demo", owner="Arjun")
+    invest_store.create_account("upstox-1", "upstox", label="Upstox — demo", owner="Rohan")
+    invest_store.create_account("wint-1", "wint", label="Wint Wealth — demo", owner="Priya")
+    invest_portfolio.set_manual_holdings("kite-1", [
+        {"symbol": "DEMOSTEEL", "quantity": 40, "avg_price": 510, "last_price": 585},
+        {"symbol": "DEMOBANK", "quantity": 120, "avg_price": 92, "last_price": 88},
+    ])
+    invest_portfolio.set_manual_holdings("upstox-1", [
+        {"symbol": "DEMOTECH", "quantity": 15, "avg_price": 1200, "last_price": 1450},
+    ])
+    invest_portfolio.set_manual_holdings("wint-1", [
+        {"symbol": "DemoInfra NCD 11.0% 2027", "isin": "INE000DEMO01",
+         "quantity": 10, "avg_price": 10000, "last_price": 10000},
+    ])
+    # Close date is seeded relative to now (~2 weeks out) so the demo IPO always
+    # reads as a realistic "14d left", never a fixed far-future "26461d left".
+    demo_ipo_close = (date.today() + timedelta(days=14)).isoformat()
+    invest_ipo.upsert(name="Demo Foods", close_date=demo_ipo_close,
+                      sub_total=12.4, sub_retail=3.1, gmp=25)
+    print("  Seeded demo investment data under: " + str(invest_config.DATA_DIR))
 
 
 AUTO_BAK_RE = re.compile(r"^finances-\d{4}-\d{2}-\d{2}\.json$")  # daily auto backups (rotated)
@@ -375,6 +454,170 @@ def safe_name(name):
     return name or "file"
 
 
+def _md_escape(text):
+    """HTML-escape ahead of any markdown-to-HTML conversion (XSS-safe: every angle
+    bracket / ampersand / quote in the source becomes an entity BEFORE we add our
+    own trusted tags)."""
+    return (text.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def _md_inline(text):
+    """Inline markdown on an already-escaped line: `code`, **bold**, [text](url).
+    Deliberately does NOT touch underscores — the broker docs are full of env-var
+    names like KITE_1_API_KEY that must not turn into italics."""
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
+    # links: [label](url) — url restricted to http(s) or a site-relative path so an
+    # escaped source can't smuggle a javascript: URL into the href we generate.
+    text = re.sub(r"\[([^\]]+)\]\((https?:[^)\s]+|/[^)\s]*)\)",
+                  lambda m: '<a href="%s" target="_blank" rel="noopener">%s</a>'
+                            % (m.group(2), m.group(1)), text)
+    return text
+
+
+def render_markdown(md_text):
+    """Minimal, safe Markdown -> HTML for the local docs viewer (stdlib only).
+    Escapes first, then converts fenced code blocks, headings, ordered/unordered
+    lists, blockquotes, bold/inline-code/links, and paragraphs. Not a full CommonMark
+    implementation — just enough to render docs/*.md as a readable page rather than
+    raw source."""
+    lines = _md_escape(md_text).split("\n")
+    out, in_code, in_ul, in_ol = [], False, False, False
+
+    def close_lists():
+        nonlocal in_ul, in_ol
+        if in_ul:
+            out.append("</ul>"); in_ul = False
+        if in_ol:
+            out.append("</ol>"); in_ol = False
+
+    # ---- GFM-style pipe tables: "| a | b |" header, "|---|---|" separator,
+    # then data rows. Operates on already-`_md_escape`d lines (see call above),
+    # and runs each cell through `_md_inline` — same escape-then-tag ordering
+    # as every other block below, so a `<script>` cell stays inert text.
+    _TABLE_SEP_CELL = re.compile(r"^:?-{1,}:?$")
+
+    def _split_row(line):
+        line = line.strip()
+        if line.startswith("|"):
+            line = line[1:]
+        if line.endswith("|") and not line.endswith("\\|"):
+            line = line[:-1]
+        return [c.strip() for c in re.split(r"(?<!\\)\|", line)]
+
+    def _is_separator_row(line):
+        cells = _split_row(line)
+        return bool(cells) and all(_TABLE_SEP_CELL.match(c) for c in cells)
+
+    def _cell_align(spec):
+        left, right = spec.startswith(":"), spec.endswith(":")
+        if left and right:
+            return "center"
+        if right:
+            return "right"
+        if left:
+            return "left"
+        return None
+
+    def _table_cell(tag, text, align):
+        attr = ' style="text-align:%s"' % align if align else ""
+        return "<%s%s>%s</%s>" % (tag, attr, _md_inline(text), tag)
+
+    i, n = 0, len(lines)
+    while i < n:
+        raw = lines[i]
+        line = raw.rstrip()
+        if line.strip().startswith("```"):
+            if in_code:
+                out.append("</code></pre>"); in_code = False
+            else:
+                close_lists(); out.append("<pre><code>"); in_code = True
+            i += 1
+            continue
+        if in_code:
+            out.append(raw)
+            i += 1
+            continue
+        if not line.strip():
+            close_lists()
+            i += 1
+            continue
+        if "|" in line and i + 1 < n and "|" in lines[i + 1] and _is_separator_row(lines[i + 1]):
+            close_lists()
+            aligns = [_cell_align(c) for c in _split_row(lines[i + 1])]
+            out.append("<table><thead><tr>" + "".join(
+                _table_cell("th", c, aligns[idx] if idx < len(aligns) else None)
+                for idx, c in enumerate(_split_row(line))) + "</tr></thead><tbody>")
+            i += 2
+            while i < n and lines[i].strip() and "|" in lines[i]:
+                out.append("<tr>" + "".join(
+                    _table_cell("td", c, aligns[idx] if idx < len(aligns) else None)
+                    for idx, c in enumerate(_split_row(lines[i]))) + "</tr>")
+                i += 1
+            out.append("</tbody></table>")
+            continue
+        h = re.match(r"(#{1,6})\s+(.*)$", line)
+        if h:
+            close_lists()
+            level = len(h.group(1))
+            out.append("<h%d>%s</h%d>" % (level, _md_inline(h.group(2)), level))
+            i += 1
+            continue
+        m = re.match(r"[-*]\s+(.*)$", line.lstrip())
+        if m:
+            if in_ol:
+                out.append("</ol>"); in_ol = False
+            if not in_ul:
+                out.append("<ul>"); in_ul = True
+            out.append("<li>%s</li>" % _md_inline(m.group(1)))
+            i += 1
+            continue
+        m = re.match(r"\d+\.\s+(.*)$", line.lstrip())
+        if m:
+            if in_ul:
+                out.append("</ul>"); in_ul = False
+            if not in_ol:
+                out.append("<ol>"); in_ol = True
+            out.append("<li>%s</li>" % _md_inline(m.group(1)))
+            i += 1
+            continue
+        if line.lstrip().startswith("&gt;"):  # blockquote (">" was escaped)
+            close_lists()
+            out.append("<blockquote>%s</blockquote>" % _md_inline(line.lstrip()[4:].lstrip()))
+            i += 1
+            continue
+        close_lists()
+        out.append("<p>%s</p>" % _md_inline(line))
+        i += 1
+
+    if in_code:
+        out.append("</code></pre>")
+    close_lists()
+    body = "\n".join(out)
+    return (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>Docs</title><style>"
+        "body{max-width:820px;margin:2rem auto;padding:0 1.2rem;line-height:1.6;"
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;"
+        "color:#0f172a;background:#f8fafc}"
+        "h1,h2,h3{line-height:1.25;letter-spacing:-.01em}"
+        "code{background:#eef1f7;padding:.1em .35em;border-radius:5px;font-size:.9em}"
+        "pre{background:#0f172a;color:#e2e8f0;padding:1rem;border-radius:10px;overflow:auto}"
+        "pre code{background:none;color:inherit;padding:0}"
+        "a{color:#4f46e5}blockquote{border-left:3px solid #c7d2fe;margin:.6rem 0;"
+        "padding:.2rem .9rem;color:#475569}"
+        "table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.95em}"
+        "th,td{border:1px solid #dde3ee;padding:.4rem .7rem;text-align:left}"
+        "th{background:#eef1f7;font-weight:600}"
+        "@media(prefers-color-scheme:dark){body{color:#e8ecf5;background:#0a0e1a}"
+        "code{background:#1e293b}a{color:#a5b4fc}blockquote{color:#94a3b8;border-color:#334155}"
+        "th,td{border-color:#2c3648}th{background:#1e293b}}"
+        "</style></head><body>\n" + body + "\n</body></html>"
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "FamilyFinance/1.0"
 
@@ -404,14 +647,38 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # keep the console quiet
 
+    def _invest(self, result):
+        """Send an invest_api handler result: ('json', status, payload) | ('redirect', loc)."""
+        if result is None:
+            return self._err(404, "Not found")
+        if result[0] == "redirect":
+            self.send_response(302)
+            self.send_header("Location", result[1])
+            self.end_headers()
+            return
+        _, status, payload = result
+        self._send(status, payload)
+
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/invest":
+            return self._serve_file(os.path.join(PUBLIC_DIR, "invest.html"))
+        if path.startswith("/api/invest/") or path.startswith("/auth/"):
+            return self._invest(invest_api.handle_get(path, parse_qs(parsed.query)))
         if path == "/api/ping":
             self._send(200, {"app": REGISTRY_KEY, "dataDir": os.path.abspath(DATA_DIR)})
             return
         if path == "/api/data":
             with open(data_file(), "r", encoding="utf-8") as f:
-                self._send(200, f.read())
+                doc = json.load(f)
+            try:
+                doc = invest_bridge.inject_live_rows(doc)
+            except Exception as e:
+                # never let a broken invest store take down the finance app —
+                # degrade to no live rows, but surface it so the UI can toast it.
+                doc["liveRowsError"] = str(e)
+            self._send(200, doc)
         elif path == "/api/files":
             items = []
             for n in sorted(os.listdir(files_dir())):
@@ -440,6 +707,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_file(os.path.join(backups_dir(), n), download=True)
         elif path.startswith("/files/"):
             self._serve_file(os.path.join(files_dir(), safe_name(path[len("/files/"):])), download=True)
+        elif path.startswith("/docs/"):
+            self._serve_doc(path[len("/docs/"):])
         else:
             if path == "/":
                 path = "/index.html"
@@ -447,6 +716,25 @@ class Handler(BaseHTTPRequestHandler):
             if not fp.startswith(PUBLIC_DIR):
                 return self._err(403, "Forbidden")
             self._serve_file(fp)
+
+    def _serve_doc(self, name):
+        """Serve docs/<name>.md read-only (BROKER-SETUP.md, NOTIFICATIONS.md — linked
+        from the /invest onboarding panel so those links work offline). Same
+        normpath + startswith guard the public/ catch-all below uses against
+        path traversal, plus an extension allowlist since docs/ only holds .md."""
+        name = unquote(name or "")
+        if not name.lower().endswith(".md"):
+            return self._err(404, "Not found")
+        fp = os.path.normpath(os.path.join(DOCS_DIR, name))
+        if not fp.startswith(DOCS_DIR):
+            return self._err(403, "Forbidden")
+        if not os.path.isfile(fp):
+            return self._err(404, "Not found")
+        # Render Markdown -> HTML so the docs read as a page, not raw source
+        # (escape-first renderer, stdlib only — see render_markdown()).
+        with open(fp, "r", encoding="utf-8") as f:
+            html = render_markdown(f.read())
+        self._send(200, html, "text/html; charset=utf-8")
 
     def _serve_file(self, fp, download=False):
         if not os.path.isfile(fp):
@@ -468,6 +756,16 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self._body().decode("utf-8"))
         except Exception as e:
             return self._err(400, "Invalid JSON: %s" % e)
+        try:
+            # Live rows are server-owned: replace whatever the client sent
+            # (possibly stale/tampered) with freshly computed ones before
+            # this is ever written to disk.
+            data = invest_bridge.inject_live_rows(data)
+        except Exception:
+            # invest store unreadable — degrade to no live rows rather than
+            # fail the save, but never persist a client-sent liveSync row
+            # we couldn't verify.
+            data["portfolio"] = [r for r in (data.get("portfolio") or []) if not r.get("liveSync")]
         data.setdefault("settings", {})["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
         with file_lock(data_file()):
             make_backup()  # automatic rotating daily backup (first save of the day)
@@ -479,6 +777,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/invest/"):
+            return self._invest(invest_api.handle_post(parsed.path, self._body()))
         if parsed.path == "/api/backup":
             name = make_backup("manual")
             if not name:
@@ -558,7 +858,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "name": final, "size": len(body)})
 
     def do_DELETE(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path.startswith("/api/invest/"):
+            return self._invest(invest_api.handle_delete(path, parse_qs(parsed.query)))
         if path.startswith("/api/backups/"):
             n = safe_name(path[len("/api/backups/"):])
             fp = os.path.join(backups_dir(), n)
@@ -580,6 +883,19 @@ class FFServer(ThreadingHTTPServer):
     # same port silently, so you'd land on another app's page. Exclusive binding
     # makes a real conflict error we can catch and step past.
     allow_reuse_address = False
+
+    def handle_error(self, request, client_address):
+        """A client that navigates away / closes the tab mid-response aborts the
+        socket, which surfaces here as a ConnectionAbortedError (WinError 10053) /
+        BrokenPipeError / ConnectionResetError. That's an ordinary, expected event —
+        collapse it to a one-line note instead of a full traceback, but let every
+        other (genuine) error print its traceback as before."""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionAbortedError, BrokenPipeError, ConnectionResetError)):
+            print("  (client %s disconnected before the response finished)" % (client_address[0]
+                  if client_address else "?"))
+            return
+        super().handle_error(request, client_address)
 
 
 def port_in_use(port):
@@ -628,8 +944,39 @@ def get_registered_port():
     return None   # not registered — caller must supply --port
 
 
+def _lan_ipv4s():
+    """Best-effort list of this machine's non-loopback IPv4 addresses, for the
+    startup banner when bound to all interfaces. Computed at runtime — never a
+    hardcoded/personal IP in the source."""
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("192.0.2.1", 9))  # TEST-NET-1: no packets sent for a UDP connect
+            ips.add(s.getsockname()[0])
+        finally:
+            s.close()
+    except OSError:
+        pass
+    return sorted(ip for ip in ips if not ip.startswith("127."))
+
+
 def main():
     global DATA_DIR
+    # Windows consoles default to cp1252, which can't encode characters like
+    # "⚠" used in startup prints below — reconfigure to UTF-8 (with a
+    # replace fallback) so startup never crashes; if the stream doesn't
+    # support reconfigure (e.g. redirected/mocked), just carry on.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(description="Family Finance local server")
     ap.add_argument("--port", type=int, default=None,
                     help="Port to bind. Defaults to this app's entry in ports.json; "
@@ -655,6 +1002,19 @@ def main():
     else:
         DATA_DIR = os.path.abspath(args.data_dir)
     ensure_data(seed)
+    invest_api.set_finances_hooks(_finances_persons, _finances_add_person)
+
+    # Investment collections follow the same data root, so --demo / --data-dir
+    # isolate them exactly like finances.json.
+    invest_config.DATA_DIR = Path(DATA_DIR) / "invest"
+    # Import drops (imports/) isolate with the data dir too — but only when the
+    # user redirected the data dir (--demo or an explicit --data-dir). A plain
+    # `python server.py` keeps reading the repo-root imports/ it always has, so
+    # existing installs are unaffected.
+    if args.demo or os.path.abspath(args.data_dir) != os.path.abspath(DEFAULT_DATA_DIR):
+        invest_config.IMPORTS_DIR = Path(DATA_DIR) / "imports"
+    if args.demo:
+        ensure_demo_invest_data()
 
     port = args.port if args.port is not None else get_registered_port()
     if port is None:
@@ -670,14 +1030,18 @@ def main():
             webbrowser.open(url)
         sys.exit(0)
 
+    invest_config.RUNTIME_PORT = port  # broker OAuth redirect URLs follow the real port
+
     try:
         httpd = FFServer((args.host, port), Handler)
     except OSError as e:
         print("Port %d is unavailable — another application is using it (%s)." % (port, e))
         sys.exit(1)
 
-    display_host = "100.90.58.116" if args.host == "0.0.0.0" else args.host
-    url = "http://%s:%d" % (display_host, port)
+    # When bound to all interfaces, the loopback URL still works locally; the
+    # actual reachable LAN addresses are listed below the warning.
+    browse_host = "127.0.0.1" if args.host in ("0.0.0.0", "::", "") else args.host
+    url = "http://%s:%d" % (browse_host, port)
     print("=" * 52)
     print("  Family Finance" + ("  [DEMO MODE]" if args.demo else ""))
     print("  App:  " + url)
@@ -689,6 +1053,8 @@ def main():
     if args.host not in ("127.0.0.1", "localhost"):
         print("  ⚠  Bound to %s — finances.json is reachable by other devices on" % args.host)
         print("     this network (no auth). Use only on a network you trust.")
+        for ip in _lan_ipv4s():
+            print("     • http://%s:%d" % (ip, port))
     print("=" * 52)
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

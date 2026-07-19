@@ -1,9 +1,6 @@
 # TODO
 - Under income page 
-    - While adding row to salary i got this error in terminal  File "C:\Users\ylnha\Projects\family-finance-app\server.py", line 352, in do_PUT
-    with open(tmp, "w", encoding="utf-8") as f:
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-PermissionError: [Errno 13] Permission denied: 'C:\\Users\\ylnha\\Projects\\family-finance-app\\data\\finances.json.tmp'
+    - While adding a salary row the server hit `PermissionError: [Errno 13] Permission denied` on `data/finances.json.tmp` (in `do_PUT`, server.py around line 352) — investigate the temp-file write/replace on Windows
 ----------------------------------------
 - Under portfolio page have charts one for each person and a seprate chart for gold by person and at family level single combined visualization which include gold 
 - In the dashboard have two visualizations one is monthly investment allocation pie chart by percentage across multiple groups and then portfolio allocation across classes which you already have, you can keep it that way.

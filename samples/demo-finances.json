@@ -4,41 +4,172 @@
     "appName": "Sharma Family Finance",
     "currency": "INR",
     "locale": "en-IN",
-    "persons": ["Arjun", "Priya"],
+    "persons": [
+      "Arjun",
+      "Priya"
+    ],
     "personMeta": {
-      "Arjun": { "dob": "1988-04-12" },
-      "Priya": { "dob": "1991-09-03" }
+      "Arjun": {
+        "dob": "1988-04-12"
+      },
+      "Priya": {
+        "dob": "1991-09-03"
+      }
     },
-    "locations": ["Bengaluru", "Hyderabad"],
+    "locations": [
+      "Bengaluru",
+      "Hyderabad"
+    ],
     "lastUpdated": "2026-06-10T21:30:00",
     "predefined": {
-      "expenseGroups": ["Housing", "Food & Groceries", "Transport", "Utilities", "Kids", "Lifestyle"],
+      "expenseGroups": [
+        "Housing",
+        "Food & Groceries",
+        "Transport",
+        "Utilities",
+        "Kids",
+        "Lifestyle"
+      ],
       "expenseCategories": {
-        "Housing": ["Rent", "Maintenance", "Society Charges"],
-        "Food & Groceries": ["Groceries", "Milk & Dairy", "Dining Out"],
-        "Transport": ["Fuel", "Cab / Metro", "Car Service"],
-        "Utilities": ["Electricity", "Water", "Internet", "Mobile", "Gas"],
-        "Kids": ["School Fees", "Activities", "Books & Supplies"],
-        "Lifestyle": ["OTT Subscriptions", "Gym", "Shopping"]
+        "Housing": [
+          "Rent",
+          "Maintenance",
+          "Society Charges"
+        ],
+        "Food & Groceries": [
+          "Groceries",
+          "Milk & Dairy",
+          "Dining Out"
+        ],
+        "Transport": [
+          "Fuel",
+          "Cab / Metro",
+          "Car Service"
+        ],
+        "Utilities": [
+          "Electricity",
+          "Water",
+          "Internet",
+          "Mobile",
+          "Gas"
+        ],
+        "Kids": [
+          "School Fees",
+          "Activities",
+          "Books & Supplies"
+        ],
+        "Lifestyle": [
+          "OTT Subscriptions",
+          "Gym",
+          "Shopping"
+        ]
       },
-      "locations": ["Bengaluru", "Hyderabad"],
-      "investmentInstruments": ["PF", "NPS", "MF SIP", "Gold Scheme", "RD", "Sukanya Samriddhi", "ELSS"],
-      "assetClasses": ["Equity", "Debt", "Fixed", "Real estate", "Liquidity", "Gold", "Other"],
-      "assetNames": ["Index Fund", "Bluechip MF", "PPF", "EPF", "Plot - Devanahalli", "Savings A/c", "FD - HDFC", "NPS Tier 1"],
-      "goalTypes": ["Car", "Home", "Family Function", "Travel", "Education"],
-      "banks": ["HDFC", "ICICI", "SBI", "Axis"],
-      "cardTypes": ["Credit", "Debit", "Credit Virtual", "Food Card", "Priority Pass", "Other"],
-      "networks": ["VISA", "MasterCard", "RuPay", "AmEx"],
-      "lenders": ["HDFC", "SBI", "Bajaj Finserv"],
-      "incomeComponents": ["BASIC SALARY", "HOUSE RENT ALLOWANCE", "SPECIAL ALLOWANCE", "LTA", "BONUS", "EMPLOYER PF", "EMPLOYER NPS", "GRATUITY"],
-      "deductionComponents": ["INCOME TAX (TDS)", "EMPLOYEE PF", "PROFESSIONAL TAX", "EMPLOYEE NPS", "HEALTH INSURANCE"],
+      "locations": [
+        "Bengaluru",
+        "Hyderabad"
+      ],
+      "investmentInstruments": [
+        "PF",
+        "NPS",
+        "MF SIP",
+        "Gold Scheme",
+        "RD",
+        "Sukanya Samriddhi",
+        "ELSS"
+      ],
+      "assetClasses": [
+        "Equity",
+        "Debt",
+        "Fixed",
+        "Real estate",
+        "Liquidity",
+        "Gold",
+        "Other"
+      ],
+      "assetNames": [
+        "Index Fund",
+        "Bluechip MF",
+        "PPF",
+        "EPF",
+        "Plot - Devanahalli",
+        "Savings A/c",
+        "FD - HDFC",
+        "NPS Tier 1"
+      ],
+      "goalTypes": [
+        "Car",
+        "Home",
+        "Family Function",
+        "Travel",
+        "Education"
+      ],
+      "banks": [
+        "HDFC",
+        "ICICI",
+        "SBI",
+        "Axis"
+      ],
+      "cardTypes": [
+        "Credit",
+        "Debit",
+        "Credit Virtual",
+        "Food Card",
+        "Priority Pass",
+        "Other"
+      ],
+      "networks": [
+        "VISA",
+        "MasterCard",
+        "RuPay",
+        "AmEx"
+      ],
+      "lenders": [
+        "HDFC",
+        "SBI",
+        "Bajaj Finserv"
+      ],
+      "incomeComponents": [
+        "BASIC SALARY",
+        "HOUSE RENT ALLOWANCE",
+        "SPECIAL ALLOWANCE",
+        "LTA",
+        "BONUS",
+        "EMPLOYER PF",
+        "EMPLOYER NPS",
+        "GRATUITY"
+      ],
+      "deductionComponents": [
+        "INCOME TAX (TDS)",
+        "EMPLOYEE PF",
+        "PROFESSIONAL TAX",
+        "EMPLOYEE NPS",
+        "HEALTH INSURANCE"
+      ],
       "expenseGroupMeta": {
-        "Housing": { "dim": "location", "created": true },
-        "Food & Groceries": { "dim": "none", "created": true },
-        "Transport": { "dim": "person", "created": true },
-        "Utilities": { "dim": "none", "created": true },
-        "Kids": { "dim": "none", "created": true },
-        "Lifestyle": { "dim": "person", "created": true }
+        "Housing": {
+          "dim": "location",
+          "created": true
+        },
+        "Food & Groceries": {
+          "dim": "none",
+          "created": true
+        },
+        "Transport": {
+          "dim": "person",
+          "created": true
+        },
+        "Utilities": {
+          "dim": "none",
+          "created": true
+        },
+        "Kids": {
+          "dim": "none",
+          "created": true
+        },
+        "Lifestyle": {
+          "dim": "person",
+          "created": true
+        }
       }
     }
   },
@@ -50,18 +181,54 @@
           {
             "year": 2024,
             "components": [
-              { "component": "BASIC SALARY", "amount": 90000, "scope": "gross" },
-              { "component": "HOUSE RENT ALLOWANCE", "amount": 45000, "scope": "gross" },
-              { "component": "SPECIAL ALLOWANCE", "amount": 60000, "scope": "gross" },
-              { "component": "LTA", "amount": 7500, "scope": "gross" },
-              { "component": "EMPLOYER PF", "amount": 10800, "scope": "ctc" },
-              { "component": "GRATUITY", "amount": 4330, "scope": "ctc" }
+              {
+                "component": "BASIC SALARY",
+                "amount": 90000,
+                "scope": "gross"
+              },
+              {
+                "component": "HOUSE RENT ALLOWANCE",
+                "amount": 45000,
+                "scope": "gross"
+              },
+              {
+                "component": "SPECIAL ALLOWANCE",
+                "amount": 60000,
+                "scope": "gross"
+              },
+              {
+                "component": "LTA",
+                "amount": 7500,
+                "scope": "gross"
+              },
+              {
+                "component": "EMPLOYER PF",
+                "amount": 10800,
+                "scope": "ctc"
+              },
+              {
+                "component": "GRATUITY",
+                "amount": 4330,
+                "scope": "ctc"
+              }
             ],
             "deductions": [
-              { "component": "INCOME TAX (TDS)", "amount": 38000 },
-              { "component": "EMPLOYEE PF", "amount": 10800 },
-              { "component": "PROFESSIONAL TAX", "amount": 200 },
-              { "component": "HEALTH INSURANCE", "amount": 2500 }
+              {
+                "component": "INCOME TAX (TDS)",
+                "amount": 38000
+              },
+              {
+                "component": "EMPLOYEE PF",
+                "amount": 10800
+              },
+              {
+                "component": "PROFESSIONAL TAX",
+                "amount": 200
+              },
+              {
+                "component": "HEALTH INSURANCE",
+                "amount": 2500
+              }
             ],
             "variablePctEligible": 15,
             "variablePctEarned": 12,
@@ -70,18 +237,54 @@
           {
             "year": 2025,
             "components": [
-              { "component": "BASIC SALARY", "amount": 102000, "scope": "gross" },
-              { "component": "HOUSE RENT ALLOWANCE", "amount": 51000, "scope": "gross" },
-              { "component": "SPECIAL ALLOWANCE", "amount": 72000, "scope": "gross" },
-              { "component": "LTA", "amount": 8500, "scope": "gross" },
-              { "component": "EMPLOYER PF", "amount": 12240, "scope": "ctc" },
-              { "component": "GRATUITY", "amount": 4900, "scope": "ctc" }
+              {
+                "component": "BASIC SALARY",
+                "amount": 102000,
+                "scope": "gross"
+              },
+              {
+                "component": "HOUSE RENT ALLOWANCE",
+                "amount": 51000,
+                "scope": "gross"
+              },
+              {
+                "component": "SPECIAL ALLOWANCE",
+                "amount": 72000,
+                "scope": "gross"
+              },
+              {
+                "component": "LTA",
+                "amount": 8500,
+                "scope": "gross"
+              },
+              {
+                "component": "EMPLOYER PF",
+                "amount": 12240,
+                "scope": "ctc"
+              },
+              {
+                "component": "GRATUITY",
+                "amount": 4900,
+                "scope": "ctc"
+              }
             ],
             "deductions": [
-              { "component": "INCOME TAX (TDS)", "amount": 47000 },
-              { "component": "EMPLOYEE PF", "amount": 12240 },
-              { "component": "PROFESSIONAL TAX", "amount": 200 },
-              { "component": "HEALTH INSURANCE", "amount": 2800 }
+              {
+                "component": "INCOME TAX (TDS)",
+                "amount": 47000
+              },
+              {
+                "component": "EMPLOYEE PF",
+                "amount": 12240
+              },
+              {
+                "component": "PROFESSIONAL TAX",
+                "amount": 200
+              },
+              {
+                "component": "HEALTH INSURANCE",
+                "amount": 2800
+              }
             ],
             "variablePctEligible": 15,
             "variablePctEarned": 14,
@@ -90,18 +293,54 @@
           {
             "year": 2026,
             "components": [
-              { "component": "BASIC SALARY", "amount": 118000, "scope": "gross" },
-              { "component": "HOUSE RENT ALLOWANCE", "amount": 59000, "scope": "gross" },
-              { "component": "SPECIAL ALLOWANCE", "amount": 88000, "scope": "gross" },
-              { "component": "LTA", "amount": 10000, "scope": "gross" },
-              { "component": "EMPLOYER PF", "amount": 14160, "scope": "ctc" },
-              { "component": "GRATUITY", "amount": 5670, "scope": "ctc" }
+              {
+                "component": "BASIC SALARY",
+                "amount": 118000,
+                "scope": "gross"
+              },
+              {
+                "component": "HOUSE RENT ALLOWANCE",
+                "amount": 59000,
+                "scope": "gross"
+              },
+              {
+                "component": "SPECIAL ALLOWANCE",
+                "amount": 88000,
+                "scope": "gross"
+              },
+              {
+                "component": "LTA",
+                "amount": 10000,
+                "scope": "gross"
+              },
+              {
+                "component": "EMPLOYER PF",
+                "amount": 14160,
+                "scope": "ctc"
+              },
+              {
+                "component": "GRATUITY",
+                "amount": 5670,
+                "scope": "ctc"
+              }
             ],
             "deductions": [
-              { "component": "INCOME TAX (TDS)", "amount": 58000 },
-              { "component": "EMPLOYEE PF", "amount": 14160 },
-              { "component": "PROFESSIONAL TAX", "amount": 200 },
-              { "component": "HEALTH INSURANCE", "amount": 3000 }
+              {
+                "component": "INCOME TAX (TDS)",
+                "amount": 58000
+              },
+              {
+                "component": "EMPLOYEE PF",
+                "amount": 14160
+              },
+              {
+                "component": "PROFESSIONAL TAX",
+                "amount": 200
+              },
+              {
+                "component": "HEALTH INSURANCE",
+                "amount": 3000
+              }
             ],
             "variablePctEligible": 18,
             "variablePctEarned": null,
@@ -115,15 +354,40 @@
           {
             "year": 2025,
             "components": [
-              { "component": "BASIC SALARY", "amount": 70000, "scope": "gross" },
-              { "component": "HOUSE RENT ALLOWANCE", "amount": 35000, "scope": "gross" },
-              { "component": "SPECIAL ALLOWANCE", "amount": 40000, "scope": "gross" },
-              { "component": "EMPLOYER PF", "amount": 8400, "scope": "ctc" }
+              {
+                "component": "BASIC SALARY",
+                "amount": 70000,
+                "scope": "gross"
+              },
+              {
+                "component": "HOUSE RENT ALLOWANCE",
+                "amount": 35000,
+                "scope": "gross"
+              },
+              {
+                "component": "SPECIAL ALLOWANCE",
+                "amount": 40000,
+                "scope": "gross"
+              },
+              {
+                "component": "EMPLOYER PF",
+                "amount": 8400,
+                "scope": "ctc"
+              }
             ],
             "deductions": [
-              { "component": "INCOME TAX (TDS)", "amount": 18000 },
-              { "component": "EMPLOYEE PF", "amount": 8400 },
-              { "component": "PROFESSIONAL TAX", "amount": 200 }
+              {
+                "component": "INCOME TAX (TDS)",
+                "amount": 18000
+              },
+              {
+                "component": "EMPLOYEE PF",
+                "amount": 8400
+              },
+              {
+                "component": "PROFESSIONAL TAX",
+                "amount": 200
+              }
             ],
             "variablePctEligible": 10,
             "variablePctEarned": 10,
@@ -132,15 +396,40 @@
           {
             "year": 2026,
             "components": [
-              { "component": "BASIC SALARY", "amount": 80000, "scope": "gross" },
-              { "component": "HOUSE RENT ALLOWANCE", "amount": 40000, "scope": "gross" },
-              { "component": "SPECIAL ALLOWANCE", "amount": 52000, "scope": "gross" },
-              { "component": "EMPLOYER PF", "amount": 9600, "scope": "ctc" }
+              {
+                "component": "BASIC SALARY",
+                "amount": 80000,
+                "scope": "gross"
+              },
+              {
+                "component": "HOUSE RENT ALLOWANCE",
+                "amount": 40000,
+                "scope": "gross"
+              },
+              {
+                "component": "SPECIAL ALLOWANCE",
+                "amount": 52000,
+                "scope": "gross"
+              },
+              {
+                "component": "EMPLOYER PF",
+                "amount": 9600,
+                "scope": "ctc"
+              }
             ],
             "deductions": [
-              { "component": "INCOME TAX (TDS)", "amount": 24000 },
-              { "component": "EMPLOYEE PF", "amount": 9600 },
-              { "component": "PROFESSIONAL TAX", "amount": 200 }
+              {
+                "component": "INCOME TAX (TDS)",
+                "amount": 24000
+              },
+              {
+                "component": "EMPLOYEE PF",
+                "amount": 9600
+              },
+              {
+                "component": "PROFESSIONAL TAX",
+                "amount": 200
+              }
             ],
             "variablePctEligible": 12,
             "variablePctEarned": null,
@@ -151,44 +440,296 @@
     ]
   },
   "expenses": [
-    { "id": "exp01", "group": "Housing", "category": "Rent", "location": "Bengaluru", "person": "", "amount": 42000, "notes": "3BHK Whitefield" },
-    { "id": "exp02", "group": "Housing", "category": "Maintenance", "location": "Bengaluru", "person": "", "amount": 6500, "notes": "" },
-    { "id": "exp03", "group": "Food & Groceries", "category": "Groceries", "location": "", "person": "", "amount": 22000, "notes": "" },
-    { "id": "exp04", "group": "Food & Groceries", "category": "Milk & Dairy", "location": "", "person": "", "amount": 3500, "notes": "" },
-    { "id": "exp05", "group": "Food & Groceries", "category": "Dining Out", "location": "", "person": "", "amount": 8000, "notes": "weekends" },
-    { "id": "exp06", "group": "Transport", "category": "Fuel", "location": "", "person": "Arjun", "amount": 7000, "notes": "" },
-    { "id": "exp07", "group": "Transport", "category": "Cab / Metro", "location": "", "person": "Priya", "amount": 4500, "notes": "office commute" },
-    { "id": "exp08", "group": "Utilities", "category": "Electricity", "location": "", "person": "", "amount": 3800, "notes": "" },
-    { "id": "exp09", "group": "Utilities", "category": "Internet", "location": "", "person": "", "amount": 1200, "notes": "ACT 300Mbps" },
-    { "id": "exp10", "group": "Utilities", "category": "Mobile", "location": "", "person": "", "amount": 1100, "notes": "2 postpaid" },
-    { "id": "exp11", "group": "Kids", "category": "School Fees", "location": "", "person": "", "amount": 28000, "notes": "Aarav - Gr 3" },
-    { "id": "exp12", "group": "Kids", "category": "Activities", "location": "", "person": "", "amount": 4000, "notes": "skating + music" },
-    { "id": "exp13", "group": "Lifestyle", "category": "OTT Subscriptions", "location": "", "person": "Arjun", "amount": 1500, "notes": "Netflix+Prime+Spotify" },
-    { "id": "exp14", "group": "Lifestyle", "category": "Gym", "location": "", "person": "Priya", "amount": 2500, "notes": "" }
+    {
+      "id": "exp01",
+      "group": "Housing",
+      "category": "Rent",
+      "location": "Bengaluru",
+      "person": "",
+      "amount": 42000,
+      "notes": "3BHK Whitefield"
+    },
+    {
+      "id": "exp02",
+      "group": "Housing",
+      "category": "Maintenance",
+      "location": "Bengaluru",
+      "person": "",
+      "amount": 6500,
+      "notes": ""
+    },
+    {
+      "id": "exp03",
+      "group": "Food & Groceries",
+      "category": "Groceries",
+      "location": "",
+      "person": "",
+      "amount": 22000,
+      "notes": ""
+    },
+    {
+      "id": "exp04",
+      "group": "Food & Groceries",
+      "category": "Milk & Dairy",
+      "location": "",
+      "person": "",
+      "amount": 3500,
+      "notes": ""
+    },
+    {
+      "id": "exp05",
+      "group": "Food & Groceries",
+      "category": "Dining Out",
+      "location": "",
+      "person": "",
+      "amount": 8000,
+      "notes": "weekends"
+    },
+    {
+      "id": "exp06",
+      "group": "Transport",
+      "category": "Fuel",
+      "location": "",
+      "person": "Arjun",
+      "amount": 7000,
+      "notes": ""
+    },
+    {
+      "id": "exp07",
+      "group": "Transport",
+      "category": "Cab / Metro",
+      "location": "",
+      "person": "Priya",
+      "amount": 4500,
+      "notes": "office commute"
+    },
+    {
+      "id": "exp08",
+      "group": "Utilities",
+      "category": "Electricity",
+      "location": "",
+      "person": "",
+      "amount": 3800,
+      "notes": ""
+    },
+    {
+      "id": "exp09",
+      "group": "Utilities",
+      "category": "Internet",
+      "location": "",
+      "person": "",
+      "amount": 1200,
+      "notes": "ACT 300Mbps"
+    },
+    {
+      "id": "exp10",
+      "group": "Utilities",
+      "category": "Mobile",
+      "location": "",
+      "person": "",
+      "amount": 1100,
+      "notes": "2 postpaid"
+    },
+    {
+      "id": "exp11",
+      "group": "Kids",
+      "category": "School Fees",
+      "location": "",
+      "person": "",
+      "amount": 28000,
+      "notes": "Aarav - Gr 3"
+    },
+    {
+      "id": "exp12",
+      "group": "Kids",
+      "category": "Activities",
+      "location": "",
+      "person": "",
+      "amount": 4000,
+      "notes": "skating + music"
+    },
+    {
+      "id": "exp13",
+      "group": "Lifestyle",
+      "category": "OTT Subscriptions",
+      "location": "",
+      "person": "Arjun",
+      "amount": 1500,
+      "notes": "Netflix+Prime+Spotify"
+    },
+    {
+      "id": "exp14",
+      "group": "Lifestyle",
+      "category": "Gym",
+      "location": "",
+      "person": "Priya",
+      "amount": 2500,
+      "notes": ""
+    }
   ],
   "monthlyInvestments": [
-    { "id": "inv01", "category": "MF SIP", "person": "Arjun", "deductedFrom": "IN HAND", "amount": 40000 },
-    { "id": "inv02", "category": "MF SIP", "person": "Priya", "deductedFrom": "IN HAND", "amount": 20000 },
-    { "id": "inv03", "category": "PF", "person": "Arjun", "deductedFrom": "GROSS", "amount": 14160 },
-    { "id": "inv04", "category": "NPS", "person": "Arjun", "deductedFrom": "CTC", "amount": 6000 },
-    { "id": "inv05", "category": "Sukanya Samriddhi", "person": "Priya", "deductedFrom": "IN HAND", "amount": 12500 },
-    { "id": "inv06", "category": "RD", "person": "Priya", "deductedFrom": "IN HAND", "amount": 10000 },
-    { "id": "inv07", "category": "ELSS", "person": "Arjun", "deductedFrom": "IN HAND", "amount": 12500 }
+    {
+      "id": "inv01",
+      "category": "MF SIP",
+      "person": "Arjun",
+      "deductedFrom": "IN HAND",
+      "amount": 40000
+    },
+    {
+      "id": "inv02",
+      "category": "MF SIP",
+      "person": "Priya",
+      "deductedFrom": "IN HAND",
+      "amount": 20000
+    },
+    {
+      "id": "inv03",
+      "category": "PF",
+      "person": "Arjun",
+      "deductedFrom": "GROSS",
+      "amount": 14160
+    },
+    {
+      "id": "inv04",
+      "category": "NPS",
+      "person": "Arjun",
+      "deductedFrom": "CTC",
+      "amount": 6000
+    },
+    {
+      "id": "inv05",
+      "category": "Sukanya Samriddhi",
+      "person": "Priya",
+      "deductedFrom": "IN HAND",
+      "amount": 12500
+    },
+    {
+      "id": "inv06",
+      "category": "RD",
+      "person": "Priya",
+      "deductedFrom": "IN HAND",
+      "amount": 10000
+    },
+    {
+      "id": "inv07",
+      "category": "ELSS",
+      "person": "Arjun",
+      "deductedFrom": "IN HAND",
+      "amount": 12500
+    }
   ],
   "portfolio": [
-    { "id": "pf01", "category": "Index Fund", "subCategory": "Equity", "owner": "Arjun", "invested": 1200000, "currentValue": 1620000, "maturityAge": 0, "maturityMonths": 0, "notes": "Nifty 50 since 2021" },
-    { "id": "pf02", "category": "Bluechip MF", "subCategory": "Equity", "owner": "Arjun", "invested": 600000, "currentValue": 712000, "maturityAge": 0, "maturityMonths": 0, "notes": "" },
-    { "id": "pf03", "category": "ELSS", "subCategory": "Equity", "owner": "Priya", "invested": 300000, "currentValue": 358000, "maturityAge": 0, "maturityMonths": 36, "notes": "tax saver, 3yr lock-in" },
-    { "id": "pf04", "category": "PPF", "subCategory": "Fixed", "owner": "Priya", "invested": 450000, "currentValue": 502000, "maturityAge": 60, "maturityMonths": 0, "notes": "matures at 60" },
-    { "id": "pf05", "category": "NPS Tier 1", "subCategory": "Fixed", "owner": "Arjun", "invested": 800000, "currentValue": 880000, "maturityAge": 60, "maturityMonths": 0, "notes": "locked till 60" },
-    { "id": "pf06", "category": "FD - HDFC", "subCategory": "Debt", "owner": "Arjun", "invested": 500000, "currentValue": 535000, "maturityAge": 0, "maturityMonths": 12, "notes": "7.1% p.a." },
-    { "id": "pf07", "category": "Plot - Devanahalli", "subCategory": "Real estate", "owner": "Family", "invested": 3500000, "currentValue": 5200000, "maturityAge": 0, "maturityMonths": 0, "notes": "1200 sqft, appreciating" },
-    { "id": "pf08", "category": "Savings A/c", "subCategory": "Liquidity", "owner": "Family", "invested": 400000, "currentValue": 400000, "maturityAge": 0, "maturityMonths": 0, "notes": "emergency buffer" }
+    {
+      "id": "pf01",
+      "category": "Index Fund",
+      "subCategory": "Equity",
+      "owner": "Arjun",
+      "invested": 1200000,
+      "currentValue": 1620000,
+      "maturityAge": 0,
+      "maturityMonths": 0,
+      "notes": "Nifty 50 since 2021"
+    },
+    {
+      "id": "pf02",
+      "category": "Bluechip MF",
+      "subCategory": "Equity",
+      "owner": "Arjun",
+      "invested": 600000,
+      "currentValue": 712000,
+      "maturityAge": 0,
+      "maturityMonths": 0,
+      "notes": ""
+    },
+    {
+      "id": "pf03",
+      "category": "ELSS",
+      "subCategory": "Equity",
+      "owner": "Priya",
+      "invested": 300000,
+      "currentValue": 358000,
+      "maturityAge": 0,
+      "maturityMonths": 36,
+      "notes": "tax saver, 3yr lock-in"
+    },
+    {
+      "id": "pf04",
+      "category": "PPF",
+      "subCategory": "Fixed",
+      "owner": "Priya",
+      "invested": 450000,
+      "currentValue": 502000,
+      "maturityAge": 60,
+      "maturityMonths": 0,
+      "notes": "matures at 60"
+    },
+    {
+      "id": "pf05",
+      "category": "NPS Tier 1",
+      "subCategory": "Fixed",
+      "owner": "Arjun",
+      "invested": 800000,
+      "currentValue": 880000,
+      "maturityAge": 60,
+      "maturityMonths": 0,
+      "notes": "locked till 60"
+    },
+    {
+      "id": "pf06",
+      "category": "FD - HDFC",
+      "subCategory": "Debt",
+      "owner": "Arjun",
+      "invested": 500000,
+      "currentValue": 535000,
+      "maturityAge": 0,
+      "maturityMonths": 12,
+      "notes": "7.1% p.a."
+    },
+    {
+      "id": "pf07",
+      "category": "Plot - Devanahalli",
+      "subCategory": "Real estate",
+      "owner": "Family",
+      "invested": 3500000,
+      "currentValue": 5200000,
+      "maturityAge": 0,
+      "maturityMonths": 0,
+      "notes": "1200 sqft, appreciating"
+    },
+    {
+      "id": "pf08",
+      "category": "Savings A/c",
+      "subCategory": "Liquidity",
+      "owner": "Family",
+      "invested": 400000,
+      "currentValue": 400000,
+      "maturityAge": 0,
+      "maturityMonths": 0,
+      "notes": "emergency buffer"
+    }
   ],
   "gold": [
-    { "id": "gold01", "person": "Priya", "grams": 120, "perGramValue": 7200, "purchasePrice": 4800 },
-    { "id": "gold02", "person": "Arjun", "grams": 40, "perGramValue": 7200, "purchasePrice": 5600 },
-    { "id": "gold03", "person": "Priya", "grams": 65, "perGramValue": 7200, "purchasePrice": null }
+    {
+      "id": "gold01",
+      "person": "Priya",
+      "grams": 120,
+      "perGramValue": 7200,
+      "purchasePrice": 4800
+    },
+    {
+      "id": "gold02",
+      "person": "Arjun",
+      "grams": 40,
+      "perGramValue": 7200,
+      "purchasePrice": 5600
+    },
+    {
+      "id": "gold03",
+      "person": "Priya",
+      "grams": 65,
+      "perGramValue": 7200,
+      "purchasePrice": null
+    }
   ],
   "loans": [
     {
@@ -204,8 +745,18 @@
       "notes": "primary residence under construction",
       "addedMidway": false,
       "prepayments": [
-        { "id": "pp01", "month": 12, "amount": 500000, "adjustMode": "tenure" },
-        { "id": "pp02", "month": 24, "amount": 300000, "adjustMode": "tenure" }
+        {
+          "id": "pp01",
+          "month": 12,
+          "amount": 500000,
+          "adjustMode": "tenure"
+        },
+        {
+          "id": "pp02",
+          "month": 24,
+          "amount": 300000,
+          "adjustMode": "tenure"
+        }
       ]
     },
     {
@@ -301,68 +852,544 @@
   ],
   "cards": [
     {
-      "id": "card01", "name": "HDFC Regalia Gold", "bank": "HDFC", "owner": "Arjun",
-      "type": "Credit", "variant": "VISA", "number": "4111 1111 1111 1234",
-      "expiry": "2028-05-01", "cvv": "123", "pin": "", "fees": 2500,
-      "benefits": "5x reward points, 12 lounge visits/yr", "lounge": "Domestic + International",
-      "loungeCriteria": "Priority Pass", "status": ""
+      "id": "card01",
+      "name": "HDFC Regalia Gold",
+      "bank": "HDFC",
+      "owner": "Arjun",
+      "type": "Credit",
+      "variant": "VISA",
+      "number": "4111 1111 1111 1234",
+      "expiry": "2028-05-01",
+      "cvv": "123",
+      "pin": "",
+      "fees": 2500,
+      "benefits": "5x reward points, 12 lounge visits/yr",
+      "lounge": "Domestic + International",
+      "loungeCriteria": "Priority Pass",
+      "status": ""
     },
     {
-      "id": "card02", "name": "ICICI Amazon Pay", "bank": "ICICI", "owner": "Priya",
-      "type": "Credit", "variant": "VISA", "number": "4222 2222 2222 5678",
-      "expiry": "2027-11-01", "cvv": "456", "pin": "", "fees": 0,
-      "benefits": "5% back on Amazon (Prime)", "lounge": "", "loungeCriteria": "", "status": ""
+      "id": "card02",
+      "name": "ICICI Amazon Pay",
+      "bank": "ICICI",
+      "owner": "Priya",
+      "type": "Credit",
+      "variant": "VISA",
+      "number": "4222 2222 2222 5678",
+      "expiry": "2027-11-01",
+      "cvv": "456",
+      "pin": "",
+      "fees": 0,
+      "benefits": "5% back on Amazon (Prime)",
+      "lounge": "",
+      "loungeCriteria": "",
+      "status": ""
     },
     {
-      "id": "card03", "name": "SBI Cashback", "bank": "SBI", "owner": "Arjun",
-      "type": "Credit", "variant": "MasterCard", "number": "5333 3333 3333 9012",
-      "expiry": "2029-02-01", "cvv": "789", "pin": "", "fees": 999,
-      "benefits": "5% cashback online", "lounge": "", "loungeCriteria": "", "status": ""
+      "id": "card03",
+      "name": "SBI Cashback",
+      "bank": "SBI",
+      "owner": "Arjun",
+      "type": "Credit",
+      "variant": "MasterCard",
+      "number": "5333 3333 3333 9012",
+      "expiry": "2029-02-01",
+      "cvv": "789",
+      "pin": "",
+      "fees": 999,
+      "benefits": "5% cashback online",
+      "lounge": "",
+      "loungeCriteria": "",
+      "status": ""
     },
     {
-      "id": "card04", "name": "Axis Atlas (old)", "bank": "Axis", "owner": "Arjun",
-      "type": "Credit", "variant": "VISA", "number": "4444 4444 4444 3456",
-      "expiry": "2025-01-01", "cvv": "321", "pin": "", "fees": 5000,
-      "benefits": "travel miles", "lounge": "International", "loungeCriteria": "spend 1L/qtr",
+      "id": "card04",
+      "name": "Axis Atlas (old)",
+      "bank": "Axis",
+      "owner": "Arjun",
+      "type": "Credit",
+      "variant": "VISA",
+      "number": "4444 4444 4444 3456",
+      "expiry": "2025-01-01",
+      "cvv": "321",
+      "pin": "",
+      "fees": 5000,
+      "benefits": "travel miles",
+      "lounge": "International",
+      "loungeCriteria": "spend 1L/qtr",
       "status": "closed"
     },
     {
-      "id": "card05", "name": "Sodexo Meal Card", "bank": "", "owner": "Priya",
-      "type": "Food Card", "variant": "RuPay", "number": "6077 0000 0000 7777",
-      "expiry": "2027-06-01", "cvv": "", "pin": "1234", "fees": 0,
-      "benefits": "tax-free meal allowance", "lounge": "", "loungeCriteria": "", "status": ""
+      "id": "card05",
+      "name": "Sodexo Meal Card",
+      "bank": "",
+      "owner": "Priya",
+      "type": "Food Card",
+      "variant": "RuPay",
+      "number": "6077 0000 0000 7777",
+      "expiry": "2027-06-01",
+      "cvv": "",
+      "pin": "1234",
+      "fees": 0,
+      "benefits": "tax-free meal allowance",
+      "lounge": "",
+      "loungeCriteria": "",
+      "status": ""
     }
   ],
   "documents": [
     {
-      "id": "doc01", "type": "link", "title": "Home Loan Sanction Letter (Drive)",
+      "id": "doc01",
+      "type": "link",
+      "title": "Home Loan Sanction Letter (Drive)",
       "ref": "https://drive.example.com/home-loan-sanction",
-      "linkedType": "loan", "linkedId": "loan01", "notes": "HDFC ref #HL2023",
+      "linkedType": "loan",
+      "linkedId": "loan01",
+      "notes": "HDFC ref #HL2023",
       "addedOn": "2024-01-15T10:00:00"
     },
     {
-      "id": "doc02", "type": "link", "title": "Car Insurance Policy",
+      "id": "doc02",
+      "type": "link",
+      "title": "Car Insurance Policy",
       "ref": "https://drive.example.com/creta-insurance-2026",
-      "linkedType": "", "linkedId": "", "notes": "renewal due Sep 2026",
+      "linkedType": "",
+      "linkedId": "",
+      "notes": "renewal due Sep 2026",
       "addedOn": "2025-09-10T09:00:00"
     }
   ],
   "ledgers": [
     {
-      "id": "led01", "person": "Ravi",
+      "id": "led01",
+      "person": "Ravi",
       "transactions": [
-        { "id": "lt01", "date": "2024-03-14", "type": "debit", "instrument": "Flipkart Axis", "amount": 10000, "cashbackMode": "percent", "cashback": 5, "extraCharges": 0, "cancelled": false, "notes": "phone order — 5% card cashback" },
-        { "id": "lt02", "date": "2024-06-20", "type": "debit", "instrument": "HDFC Regalia", "amount": 8000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 40, "cancelled": false, "notes": "EMI processing fee added" },
-        { "id": "lt03", "date": "2024-08-01", "type": "credit", "instrument": "Jupiter", "amount": 5000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "partial repayment" },
-        { "id": "lt04", "date": "2024-09-10", "type": "debit", "instrument": "SBI Cashback", "amount": 6000, "cashbackMode": "percent", "cashback": 5, "extraCharges": 0, "cancelled": true, "notes": "order cancelled — voided" },
-        { "id": "lt05", "date": "2025-01-12", "type": "credit", "instrument": "ICICI Savings", "amount": 3000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "" }
+        {
+          "id": "lt01",
+          "date": "2024-03-14",
+          "type": "debit",
+          "instrument": "Flipkart Axis",
+          "amount": 10000,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": "phone order — 5% card cashback"
+        },
+        {
+          "id": "lt02",
+          "date": "2024-06-20",
+          "type": "debit",
+          "instrument": "HDFC Regalia",
+          "amount": 8000,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 40,
+          "cancelled": false,
+          "notes": "EMI processing fee added"
+        },
+        {
+          "id": "lt03",
+          "date": "2024-08-01",
+          "type": "credit",
+          "instrument": "Jupiter",
+          "amount": 5000,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": "partial repayment"
+        },
+        {
+          "id": "lt04",
+          "date": "2024-09-10",
+          "type": "debit",
+          "instrument": "SBI Cashback",
+          "amount": 6000,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": true,
+          "notes": "order cancelled — voided"
+        },
+        {
+          "id": "lt05",
+          "date": "2025-01-12",
+          "type": "credit",
+          "instrument": "ICICI Savings",
+          "amount": 3000,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2600",
+          "date": "2026-01-01",
+          "type": "debit",
+          "instrument": "Flipkart Axis",
+          "amount": 500,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 15,
+          "cancelled": false,
+          "notes": "demo pagination row"
+        },
+        {
+          "id": "lt2601",
+          "date": "2026-02-02",
+          "type": "debit",
+          "instrument": "HDFC Swiggy",
+          "amount": 637,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2602",
+          "date": "2026-03-03",
+          "type": "credit",
+          "instrument": "Cash",
+          "amount": 774,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2603",
+          "date": "2026-04-04",
+          "type": "debit",
+          "instrument": "UPI",
+          "amount": 911,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2604",
+          "date": "2026-05-05",
+          "type": "debit",
+          "instrument": "Flipkart Axis",
+          "amount": 1048,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2605",
+          "date": "2026-06-06",
+          "type": "credit",
+          "instrument": "HDFC Swiggy",
+          "amount": 1185,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2606",
+          "date": "2026-07-07",
+          "type": "debit",
+          "instrument": "Cash",
+          "amount": 1322,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2607",
+          "date": "2026-08-08",
+          "type": "debit",
+          "instrument": "UPI",
+          "amount": 1459,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 15,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2608",
+          "date": "2026-09-09",
+          "type": "credit",
+          "instrument": "Flipkart Axis",
+          "amount": 1596,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2609",
+          "date": "2026-10-10",
+          "type": "debit",
+          "instrument": "HDFC Swiggy",
+          "amount": 1733,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2610",
+          "date": "2026-11-11",
+          "type": "debit",
+          "instrument": "Cash",
+          "amount": 1870,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2611",
+          "date": "2026-12-12",
+          "type": "credit",
+          "instrument": "UPI",
+          "amount": 2007,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2612",
+          "date": "2026-01-13",
+          "type": "debit",
+          "instrument": "Flipkart Axis",
+          "amount": 2144,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2613",
+          "date": "2026-02-14",
+          "type": "debit",
+          "instrument": "HDFC Swiggy",
+          "amount": 2281,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": true,
+          "notes": ""
+        },
+        {
+          "id": "lt2614",
+          "date": "2026-03-15",
+          "type": "credit",
+          "instrument": "Cash",
+          "amount": 2418,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 15,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2615",
+          "date": "2026-04-16",
+          "type": "debit",
+          "instrument": "UPI",
+          "amount": 2555,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2616",
+          "date": "2026-05-17",
+          "type": "debit",
+          "instrument": "Flipkart Axis",
+          "amount": 2692,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2617",
+          "date": "2026-06-18",
+          "type": "credit",
+          "instrument": "HDFC Swiggy",
+          "amount": 2829,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2618",
+          "date": "2026-07-19",
+          "type": "debit",
+          "instrument": "Cash",
+          "amount": 2966,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2619",
+          "date": "2026-08-20",
+          "type": "debit",
+          "instrument": "UPI",
+          "amount": 3103,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2620",
+          "date": "2026-09-21",
+          "type": "credit",
+          "instrument": "Flipkart Axis",
+          "amount": 3240,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2621",
+          "date": "2026-10-22",
+          "type": "debit",
+          "instrument": "HDFC Swiggy",
+          "amount": 3377,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 15,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2622",
+          "date": "2026-11-23",
+          "type": "debit",
+          "instrument": "Cash",
+          "amount": 3514,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2623",
+          "date": "2026-12-24",
+          "type": "credit",
+          "instrument": "UPI",
+          "amount": 3651,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2624",
+          "date": "2026-01-25",
+          "type": "debit",
+          "instrument": "Flipkart Axis",
+          "amount": 3788,
+          "cashbackMode": "percent",
+          "cashback": 5,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2625",
+          "date": "2026-02-26",
+          "type": "debit",
+          "instrument": "HDFC Swiggy",
+          "amount": 3925,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2626",
+          "date": "2026-03-27",
+          "type": "credit",
+          "instrument": "Cash",
+          "amount": 4062,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        },
+        {
+          "id": "lt2627",
+          "date": "2026-04-01",
+          "type": "debit",
+          "instrument": "UPI",
+          "amount": 4199,
+          "cashbackMode": "fixed",
+          "cashback": 20,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": ""
+        }
       ]
     },
     {
-      "id": "led02", "person": "Family",
+      "id": "led02",
+      "person": "Family",
       "transactions": [
-        { "id": "lt06", "date": "2024-02-10", "type": "credit", "instrument": "ICICI Savings", "amount": 43000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "received from family" },
-        { "id": "lt07", "date": "2024-05-05", "type": "debit", "instrument": "Cash / UPI", "amount": 6000, "cashbackMode": "fixed", "cashback": 0, "extraCharges": 0, "cancelled": false, "notes": "sent via UPI" }
+        {
+          "id": "lt06",
+          "date": "2024-02-10",
+          "type": "credit",
+          "instrument": "ICICI Savings",
+          "amount": 43000,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": "received from family"
+        },
+        {
+          "id": "lt07",
+          "date": "2024-05-05",
+          "type": "debit",
+          "instrument": "Cash / UPI",
+          "amount": 6000,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": "sent via UPI"
+        }
       ]
     }
   ]

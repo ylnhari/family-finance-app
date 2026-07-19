@@ -1,0 +1,63 @@
+[
+  {
+    "name": "lending: year tabs render, latest year active, per-year KPIs",
+    "tags": ["smoke"],
+    "steps": [
+      {"goto": "/"},
+      {"click": "#nav button[data-page=lending]"},
+      {"wait_for": "document.querySelectorAll('.ltabs.years .ltab.year').length >= 2"},
+      {"assert": "document.querySelector('.ltab.year.active').textContent.includes('2026')"},
+      {"assert_text": [".ledger-kpis.year", "2026 net"],
+       "//": "per-year aggregation strip present"},
+      {"shot": "smoke-lending.png"}
+    ]
+  },
+  {
+    "name": "lending: 2026 shows max 25 rows + Show more grows the list",
+    "tags": ["smoke"],
+    "steps": [
+      {"goto": "/"},
+      {"click": "#nav button[data-page=lending]"},
+      {"wait_for": "document.querySelectorAll('.ltabs.years .ltab.year').length >= 2"},
+      {"assert_count_lte": ["#main table tbody tr", 25]},
+      {"assert_text": [".load-more button", "remaining"]},
+      {"click": ".load-more button"},
+      {"assert": "document.querySelectorAll('#main table tbody tr').length === 28"}
+    ]
+  },
+  {
+    "name": "lending: clicking an older year swaps the table to that year only",
+    "tags": ["smoke"],
+    "steps": [
+      {"goto": "/"},
+      {"click": "#nav button[data-page=lending]"},
+      {"wait_for": "document.querySelectorAll('.ltabs.years .ltab.year').length >= 2"},
+      {"click_text": [".ltabs.years .ltab.year", "2024"]},
+      {"assert": "document.querySelector('.ltab.year.active').textContent.includes('2024')"},
+      {"assert": "document.querySelectorAll('#main table tbody tr').length === 4"},
+      {"assert_text": [".ledger-kpis.year", "2024 net"]},
+      {"shot": "smoke-lending-2024.png"}
+    ]
+  },
+  {
+    "name": "expenses: sections render capped with load-more available on big sections",
+    "tags": ["smoke"],
+    "steps": [
+      {"goto": "/"},
+      {"click": "#nav button[data-page=expenses]"},
+      {"wait_for": "document.querySelector('#main table tbody tr')"},
+      {"assert": "[...document.querySelectorAll('#main table')].every(t => t.querySelectorAll('tbody tr').length <= 26)"},
+      {"shot": "smoke-expenses.png"}
+    ]
+  },
+  {
+    "name": "dashboard: renders with capped lists and no errors",
+    "tags": ["smoke"],
+    "steps": [
+      {"goto": "/"},
+      {"wait_for": "document.querySelector('#main').innerHTML.length > 2000"},
+      {"assert_count_lte": ["#main table tbody tr", 25]},
+      {"shot": "smoke-dashboard.png"}
+    ]
+  }
+]

@@ -34,6 +34,10 @@ test("sample: lending ledgers cover 2 people, multi-year, %-cashback, cancelled 
   const dirs = new Set(DB.ledgers.map(L => ledgerTotals(L.transactions).direction));
   assert.ok(dirs.has("receive"), "someone owes you");
   assert.ok(dirs.has("owe"), "you owe someone");
+  // one ledger-year must exceed a UI page (25 rows) so the "Show more" flow stays demoable
+  const maxYearCount = Math.max(...DB.ledgers.flatMap(
+    L => ledgerTotals(L.transactions).byYear.map(y => y.count)));
+  assert.ok(maxYearCount > 25, "a single ledger year with >25 transactions (pagination demo)");
 });
 
 test("sample: every earner's salary years compute positive CTC & in-hand", () => {

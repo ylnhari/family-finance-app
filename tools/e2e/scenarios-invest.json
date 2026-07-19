@@ -1,0 +1,102 @@
+[
+  {
+    "name": "invest: dashboard loads, hero total + accounts + allocation render, no console errors",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/invest"},
+      {"wait_for": "document.querySelector('#heroTotal') && document.querySelector('#heroTotal').textContent.replace(/\\s/g,'').length > 1"},
+      {"assert": "document.querySelector('#accounts') && document.querySelector('#accounts').children.length >= 1"},
+      {"assert": "document.querySelector('#allocBar') && document.querySelector('#allocLegend').children.length >= 1"},
+      {"assert": "document.querySelector('#heroTotal').textContent.includes('1,33,960') || /\\d/.test(document.querySelector('#heroTotal').textContent)"},
+      {"shot": "invest-dashboard.png"}
+    ]
+  },
+  {
+    "name": "invest: IPO tracker section renders a row from demo data",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/invest"},
+      {"wait_for": "document.body.textContent.includes('Demo Foods')"},
+      {"assert": "!document.querySelector('#ipos-body').hidden"},
+      {"eval": "document.querySelector('#ipos').scrollIntoView({block:'center'})"},
+      {"wait": 400},
+      {"shot": "invest-ipo.png"}
+    ]
+  },
+  {
+    "name": "invest: signals section renders concentration/pnl reasons",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/invest"},
+      {"wait_for": "document.body.textContent.includes('concentration') || document.body.textContent.includes('DEMOSTEEL')"},
+      {"eval": "document.querySelector('#signals').scrollIntoView({block:'center'})"},
+      {"wait": 400},
+      {"shot": "invest-signals.png"}
+    ]
+  },
+  {
+    "name": "invest: cross-nav — Live Investments button on finance dashboard shows the embedded iframe",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/"},
+      {"wait_for": "document.querySelector('#nav button[data-page=\"live\"]')"},
+      {"click": "#nav button[data-page=\"live\"]"},
+      {"wait_for": "location.pathname === '/' && document.querySelector('#liveFrame')"},
+      {"assert": "document.querySelector('#nav button[data-page=\"live\"]').classList.contains('active')"},
+      {"assert": "!document.getElementById('liveHost').hidden"},
+      {"assert": "document.getElementById('main').hidden"},
+      {"assert": "document.querySelector('#liveFrame').src.includes('/invest')"},
+      {"shot": "invest-embedded-tab.png"}
+    ]
+  },
+  {
+    "name": "invest: direct visit to /invest still works standalone (no embed)",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/invest"},
+      {"wait_for": "document.querySelector('#heroTotal') && document.querySelector('#heroTotal').textContent.replace(/\\s/g,'').length > 1"},
+      {"assert": "!document.documentElement.hasAttribute('data-embed')"},
+      {"assert": "getComputedStyle(document.querySelector('.back-link')).display !== 'none'"}
+    ]
+  },
+  {
+    "name": "invest: cross-nav — Family Finance link on invest page lands back on /",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/invest"},
+      {"click_text": ["a", "Family Finance"]},
+      {"wait_for": "location.pathname === '/' && document.querySelector('#nav')"}
+    ]
+  },
+  {
+    "name": "invest: Accounts section shows an owner <select> per account",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/invest"},
+      {"wait_for": "document.querySelector('#accounts tbody tr')"},
+      {"assert": "document.querySelectorAll('#accounts select.owner-select').length >= 1"},
+      {"assert": "document.querySelector('#accounts select.owner-select option[value=\"__new__\"]')"}
+    ]
+  },
+  {
+    "name": "invest: embed mode (?embed=1) hides the back link",
+    "tags": ["smoke", "invest"],
+    "steps": [
+      {"goto": "/invest?embed=1"},
+      {"wait_for": "document.querySelector('#heroTotal') && document.querySelector('#heroTotal').textContent.replace(/\\s/g,'').length > 1"},
+      {"assert": "document.documentElement.hasAttribute('data-embed')"},
+      {"assert": "getComputedStyle(document.querySelector('.back-link')).display === 'none'"}
+    ]
+  },
+  {
+    "name": "invest: Portfolio page renders at least one liveSync badge in demo mode",
+    "tags": ["smoke", "invest", "portfolio"],
+    "steps": [
+      {"goto": "/"},
+      {"wait_for": "document.querySelector('#nav button[data-page=\"portfolio\"]')"},
+      {"click": "#nav button[data-page=\"portfolio\"]"},
+      {"wait_for": "document.querySelector('#main .panel')"},
+      {"assert": "document.querySelectorAll('#main .chip.live').length >= 1"}
+    ]
+  }
+]

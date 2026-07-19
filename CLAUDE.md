@@ -15,8 +15,21 @@ A self-contained personal/family finance tracker. Tracks income, expenses, loans
 ```
 server.py              # Stdlib HTTP server (no Flask, no FastAPI). Optional Gemini AI
                        #   endpoints (payslip extract, goal-price) — key-gated, degrade gracefully
+                       #   Also serves GET /invest (public/invest.html) + /api/invest/* + broker
+                       #   OAuth callbacks (/auth/<kite|upstox>/<account>/<login|callback>)
+config.py               # Investments module config: ports.json port lookup + .env loader
+                       #   (repo .env, then ../.env; FF_NO_DOTENV=1 disables, used by tests)
+invest_api.py           # /api/invest/* route handlers + broker OAuth callback handlers
+invest_cli.py           # CLI: import / ipo / wint subcommands (holdings CSV, IPO tracker, Wint xlsx)
+daily_brief.py          # Optional: daily portfolio/IPO summary pushed to phone via ntfy.sh
+refresh_tokens.py       # Optional: unattended morning broker token refresh (TOTP 2FA)
+investlib/              # Investments package: brokers.py, analysis.py, ipo.py, ipo_fetch.py,
+                       #   ipo_history.py, portfolio.py, store.py, wintwealth.py, xlsx_lite.py
+requirements-invest.txt # OPTIONAL extras (kiteconnect, upstox-python-sdk, requests, pyotp) —
+                       #   only for live broker/NSE/IPO network sync; nothing else needs them
 public/
   index.html          # loads finance-math.js BEFORE app.js
+  invest.html          # investments dashboard UI (served at /invest)
   finance-math.js     # PURE money math (EMI, amortization, loan prepayment, income totals,
                        #   gold gain, validation). No DOM/DB — require()-able + unit-tested
   app.js              # UI + DB orchestration; delegates calc to finance-math.js
@@ -28,20 +41,45 @@ data/                  # YOUR data — gitignored, never commit
   finances.json        # All records
   files/               # Uploaded documents
   backups/             # Auto daily backups (last 14 kept)
-demo-data/             # Throwaway --demo sandbox — gitignored, auto-seeded from samples/
-start.bat / start.sh   # Launchers
+  invest/              # Investment holdings/accounts/IPO tracker JSON — same gitignore rules
+imports/               # Broker CSV/xlsx statement drops for invest_cli.py — gitignored except README
+demo-data/             # Throwaway --demo sandbox — gitignored, auto-seeded from samples/ (also seeds
+                       #   fake invest holdings)
+.env / .env.example    # Gitignored secrets (broker API keys, GEMINI_API_KEY, NTFY_TOPIC) /
+                       #   tracked template with every value left blank
+start.bat / start.sh   # Launchers (start.bat auto-prefers .venv\Scripts\python.exe if present)
 test.bat  / test.sh    # Test runners
 ```
 
 ## Rules
-1. **No new dependencies.** stdlib only for the server; Node's built-in test runner + Python `unittest` for tests. Frontend may use CDN scripts only if absolutely necessary.
+1. **No new dependencies, with one sanctioned exception.** The core server stays
+   stdlib-only for everyone; the investments module's live-sync extras
+   (`requirements-invest.txt`: kiteconnect, upstox-python-sdk, requests, pyotp) are the
+   single sanctioned exception, and they exist **only** to talk to broker/NSE APIs.
+   They must stay optional and lazily imported — the app, including the investments
+   dashboard's CSV/xlsx import and manual tracking, must run with no installs at all;
+   missing extras degrade to a clear error on the sync buttons, never a crash. Node's
+   built-in test runner + Python `unittest` for tests. Frontend may use CDN scripts only
+   if absolutely necessary. No other new dependencies without asking.
 2. **Data stays local.** No API calls from `server.py` that transmit financial data anywhere. (The Gemini endpoints send an uploaded payslip / a goal *name* only — never `finances.json` — and only when the user clicks and a key is set.)
-3. **Never touch the user's `data/` folder.** Don't read, edit, move, delete, or commit anything under `data/`. For demos/manual checks use `--demo` (writes to `demo-data/`, gitignored) or a temp `--data-dir`. Keep both `data/` and `demo-data/` gitignored — verify `.gitignore` before any git op.
+3. **Never touch the user's `data/` folder.** Don't read, edit, move, delete, or commit anything under `data/` or `imports/`. For demos/manual checks use `--demo` (writes to `demo-data/`, gitignored) or a temp `--data-dir`. Keep `data/`, `imports/`, and `demo-data/` gitignored — verify `.gitignore` before any git op.
 4. **Backups are automatic** — don't delete `data/backups/` manually.
 5. **Tests must stay green.** Run `./test.sh` (or `test.bat`) before considering any change done.
 6. **Every feature ships with tests + demo data.** No change is "done" until BOTH are updated:
    - **Tests** — add cases proving the new behaviour (pure calc → `math.test.js`; endpoint → `test_server.py`; AI parse → `test_gemini.py`).
    - **Sample data** — extend `samples/demo-finances.json` so the feature is visibly demoable, and assert its presence in `sample.test.js` so the demo can't silently lose coverage.
+
+## Investments module rules
+- **Signals are decision-support, not advice.** Buy/sell/keep signals and the IPO
+  apply/skip recommendation are simple heuristics, not financial advice — no trading
+  automation or order placement, ever.
+- **Thresholds are named constants**, kept at the top of `investlib/analysis.py` and
+  `investlib/ipo.py` — never inline magic numbers.
+- **Tests never touch real `data/`** — use the `TempDataMixin` pattern (swaps
+  `config.DATA_DIR` to a temp dir) — **and never call broker/NSE/IPO networks.**
+- **Personal financial data only lives in gitignored `data/` and `imports/`.** Never
+  commit holdings, account numbers, or broker CSV/xlsx exports; test fixtures use fake
+  symbols/accounts only.
 
 ## Running
 ```bash

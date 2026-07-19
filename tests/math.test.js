@@ -283,12 +283,14 @@ test("ledgerCashback: fixed returns the flat value; percent is % of amount", () 
   assert.equal(ledgerCashback(null), 0);
 });
 
-test("ledgerNet: debit adds (amount+extra−cashback), credit subtracts amount, cancelled is zero", () => {
+test("ledgerNet: debit adds (amount+extra−cashback), credit subtracts amount, cancelled counts only its fee", () => {
   approx(ledgerNet({ type: "debit", amount: 10000, cashbackMode: "percent", cashback: 5 }), 9500);
   approx(ledgerNet({ type: "debit", amount: 8000, extraCharges: 40 }), 8040);
   approx(ledgerNet({ type: "credit", amount: 5000 }), -5000);
+  // cancelled order: principal never lent, so net is just any cancellation fee
   assert.equal(ledgerNet({ type: "debit", amount: 9999, cancelled: true }), 0);
   assert.equal(ledgerNet({ type: "credit", amount: 9999, cancelled: true }), 0);
+  assert.equal(ledgerNet({ type: "debit", amount: 31321, extraCharges: 53, cancelled: true }), 53);
 });
 
 test("ledgerYear extracts the year from an ISO date", () => {
