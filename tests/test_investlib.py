@@ -942,22 +942,28 @@ class TestUpstoxAnalyticsToken(TempDataMixin):
         from unittest import mock
         from investlib import brokers
 
-        captured = {}
-
         class FakeResp:
             def raise_for_status(self): pass
             def json(self):
                 return {"data": [{"trading_symbol": "DEMOA", "isin": "INE0",
                                   "quantity": 2, "average_price": 100, "last_price": 150}]}
 
-        def fake_get(url, headers=None, timeout=None):
-            captured["auth"] = headers["Authorization"]
-            return FakeResp()
+        # Patch the whole `requests` module attribute on `brokers`, not an
+        # attribute *on* it (e.g. brokers.requests.get) — with no extras
+        # installed, brokers.requests is the _MissingRequests shim, whose
+        # __getattr__ raises RuntimeError, and mock.patch.object(brokers.requests,
+        # "get", ...) needs to getattr("get") on it to save the original before
+        # patching. Patching the module-level name itself is a dict lookup on
+        # `brokers.__dict__`, never touching the shim's __getattr__ — so this
+        # test exercises real coverage in both the with- and without-extras envs.
+        fake_requests = mock.MagicMock()
+        fake_requests.get.return_value = FakeResp()
 
         with mock.patch.dict("os.environ", {"UPSTOX_1_ANALYTICS_TOKEN": "AT123"}), \
-                mock.patch.object(brokers.requests, "get", fake_get):
+                mock.patch.object(brokers, "requests", fake_requests):
             result = brokers.upstox_sync("upstox-1")
-        self.assertEqual(captured["auth"], "Bearer AT123")
+        _, kwargs = fake_requests.get.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer AT123")
         self.assertEqual(result["upstox-1"], 1)
 
 

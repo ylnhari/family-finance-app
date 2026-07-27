@@ -7,6 +7,11 @@ Numbers land in the same store the manual CLI writes to, so recommend() and
 reminders work identically either way.
 """
 
+# Annotations stay strings so a module-level hint like `-> requests.Session` is never
+# evaluated at import time — without this the missing-requests shim below raises while
+# the module is still being imported, and the whole app fails to start with no extras.
+from __future__ import annotations
+
 from datetime import datetime
 
 try:
