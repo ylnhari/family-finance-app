@@ -153,6 +153,35 @@ class TestBridge(TempDataMixin):
         self.assertTrue(rows["kite-1"]["liveSync"])
         self.assertEqual(rows["kite-1"]["id"], "live-kite-1")
 
+    def test_live_rows_carries_holdings_source_through(self):
+        """The holdings snapshot's `source` (kite/upstox API, manual entry, or an
+        imported CSV/xlsx filename) must reach the injected liveSync row — the main
+        app's Portfolio badge (public/app.js liveSyncBadge()) uses it to tell a real
+        broker-API sync apart from manual/CSV/xlsx entry so it doesn't call the
+        latter "live" (which reads as broker-synced to a new user)."""
+        from investlib import bridge
+        accounts = [
+            {"id": "kite-1", "label": "Kite", "asset_class": "stocks", "owner": "Alex"},
+            {"id": "manual-1", "label": "Manual", "asset_class": "bonds", "owner": "Alex"},
+            {"id": "csv-1", "label": "CSV", "asset_class": "stocks", "owner": "Alex"},
+            {"id": "unknown-1", "label": "Unknown", "asset_class": "stocks", "owner": "Alex"},
+        ]
+        holdings = {
+            "kite-1": {"source": "kite api", "rows": [
+                {"symbol": "X", "quantity": 1, "avg_price": 10, "last_price": 10, "value": 10}]},
+            "manual-1": {"source": "manual", "rows": [
+                {"symbol": "Y", "quantity": 1, "avg_price": 10, "last_price": 10, "value": 10}]},
+            "csv-1": {"source": "holdings.csv", "rows": [
+                {"symbol": "Z", "quantity": 1, "avg_price": 10, "last_price": 10, "value": 10}]},
+            "unknown-1": {"rows": [  # no "source" key at all — must default, never KeyError
+                {"symbol": "W", "quantity": 1, "avg_price": 10, "last_price": 10, "value": 10}]},
+        }
+        rows = {r["investAccountId"]: r for r in bridge.live_rows(accounts, holdings, "now")}
+        self.assertEqual(rows["kite-1"]["source"], "kite api")
+        self.assertEqual(rows["manual-1"]["source"], "manual")
+        self.assertEqual(rows["csv-1"]["source"], "holdings.csv")
+        self.assertEqual(rows["unknown-1"]["source"], "")
+
     def test_live_rows_skips_smallcase_without_own_holdings_no_double_count(self):
         """smallcase-1's positions live inside kite-1/-2's own holdings — it must
         never get its own live row (that would double-count the same money)."""

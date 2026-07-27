@@ -484,6 +484,14 @@ def render_markdown(md_text):
     raw source."""
     lines = _md_escape(md_text).split("\n")
     out, in_code, in_ul, in_ol = [], False, False, False
+    para_buf = []  # consecutive non-blank plain-text lines belong to ONE paragraph
+    # (soft-wrapped source lines, no blank line between them) — flushed as a single
+    # <p> so prose reads as normal paragraphs instead of one <p> per source line.
+
+    def flush_para():
+        if para_buf:
+            out.append("<p>%s</p>" % _md_inline(" ".join(para_buf)))
+            del para_buf[:]
 
     def close_lists():
         nonlocal in_ul, in_ol
@@ -532,7 +540,7 @@ def render_markdown(md_text):
             if in_code:
                 out.append("</code></pre>"); in_code = False
             else:
-                close_lists(); out.append("<pre><code>"); in_code = True
+                flush_para(); close_lists(); out.append("<pre><code>"); in_code = True
             i += 1
             continue
         if in_code:
@@ -540,11 +548,11 @@ def render_markdown(md_text):
             i += 1
             continue
         if not line.strip():
-            close_lists()
+            flush_para(); close_lists()
             i += 1
             continue
         if "|" in line and i + 1 < n and "|" in lines[i + 1] and _is_separator_row(lines[i + 1]):
-            close_lists()
+            flush_para(); close_lists()
             aligns = [_cell_align(c) for c in _split_row(lines[i + 1])]
             out.append("<table><thead><tr>" + "".join(
                 _table_cell("th", c, aligns[idx] if idx < len(aligns) else None)
@@ -559,13 +567,14 @@ def render_markdown(md_text):
             continue
         h = re.match(r"(#{1,6})\s+(.*)$", line)
         if h:
-            close_lists()
+            flush_para(); close_lists()
             level = len(h.group(1))
             out.append("<h%d>%s</h%d>" % (level, _md_inline(h.group(2)), level))
             i += 1
             continue
         m = re.match(r"[-*]\s+(.*)$", line.lstrip())
         if m:
+            flush_para()
             if in_ol:
                 out.append("</ol>"); in_ol = False
             if not in_ul:
@@ -575,6 +584,7 @@ def render_markdown(md_text):
             continue
         m = re.match(r"\d+\.\s+(.*)$", line.lstrip())
         if m:
+            flush_para()
             if in_ul:
                 out.append("</ul>"); in_ul = False
             if not in_ol:
@@ -583,16 +593,29 @@ def render_markdown(md_text):
             i += 1
             continue
         if line.lstrip().startswith("&gt;"):  # blockquote (">" was escaped)
-            close_lists()
+            flush_para(); close_lists()
             out.append("<blockquote>%s</blockquote>" % _md_inline(line.lstrip()[4:].lstrip()))
             i += 1
             continue
+        # A plain line while a list is open is a lazy continuation of the current
+        # item (the blank-line branch above already closed the list otherwise), so
+        # it belongs INSIDE that <li> — not as a new un-indented paragraph beneath
+        # the bullet, which is how soft-wrapped list items used to render.
+        if (in_ul or in_ol) and out and out[-1].startswith("<li>") and out[-1].endswith("</li>"):
+            out[-1] = "%s %s</li>" % (out[-1][: -len("</li>")], _md_inline(line))
+            i += 1
+            continue
+        # plain text line: accumulate into the paragraph buffer rather than
+        # emitting immediately — a soft-wrapped paragraph (multiple source
+        # lines, no blank line between them) must render as ONE <p>, not one
+        # <p> per line (that was inflating perceived line spacing).
         close_lists()
-        out.append("<p>%s</p>" % _md_inline(line))
+        para_buf.append(line)
         i += 1
 
     if in_code:
         out.append("</code></pre>")
+    flush_para()
     close_lists()
     body = "\n".join(out)
     return (
@@ -602,10 +625,16 @@ def render_markdown(md_text):
         "body{max-width:820px;margin:2rem auto;padding:0 1.2rem;line-height:1.6;"
         "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;"
         "color:#0f172a;background:#f8fafc}"
-        "h1,h2,h3{line-height:1.25;letter-spacing:-.01em}"
-        "code{background:#eef1f7;padding:.1em .35em;border-radius:5px;font-size:.9em}"
+        "h1,h2,h3{line-height:1.25;letter-spacing:-.01em;margin:1.3em 0 .5em}"
+        "h1:first-child,h2:first-child,h3:first-child{margin-top:0}"
+        "p{margin:.75em 0}"
+        "ul,ol{margin:.6em 0;padding-left:1.4em}"
+        "li{margin:.2em 0}"
+        # inline code keeps line-height:1 so it never stretches the paragraph line box
+        "code{background:#eef1f7;padding:.15em .4em;border-radius:5px;font-size:.9em;"
+        "line-height:1}"
         "pre{background:#0f172a;color:#e2e8f0;padding:1rem;border-radius:10px;overflow:auto}"
-        "pre code{background:none;color:inherit;padding:0}"
+        "pre code{background:none;color:inherit;padding:0;line-height:inherit}"
         "a{color:#4f46e5}blockquote{border-left:3px solid #c7d2fe;margin:.6rem 0;"
         "padding:.2rem .9rem;color:#475569}"
         "table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.95em}"

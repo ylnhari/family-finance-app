@@ -452,9 +452,31 @@ function donutChart(items, size) {
   }).join("");
   const legend = items.map((i, ix) => `<span><i class="dot" style="background:${i.color || PALETTE[ix % PALETTE.length]}"></i>${esc(i.label)} <b>${fmtPct(i.value / total)}</b></span>`).join("");
   return `<div class="donut-wrap"><svg width="${size}" height="${size}">${segs}
-    <text x="${c}" y="${c - 3}" text-anchor="middle" font-size="15" font-weight="700" fill="#1c2333">${fmtMoney(total, true)}</text>
-    <text x="${c}" y="${c + 14}" text-anchor="middle" font-size="10.5" fill="#6b7385">total</text></svg>
+    <text x="${c}" y="${c - 3}" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">${fmtMoney(total, true)}</text>
+    <text x="${c}" y="${c + 14}" text-anchor="middle" font-size="10.5" fill="var(--muted)">total</text></svg>
     <div class="legend" style="flex-direction:column;align-items:flex-start">${legend}</div></div>`;
+}
+
+/* liveSync rows (see investlib/bridge.py live_rows()) are fed from the Investments
+   module for EVERY holdings source — a real broker API sync, a manual entry, or a
+   CSV/xlsx import — but only a broker API sync actually refreshes on its own. Badge
+   wording must not tell a manual/imported row apart from a broker one as "live". */
+const BROKER_SOURCE_RE = /\bapi\b/i;
+function liveSyncSourceDesc(src, isBroker) {
+  if (isBroker) return "broker sync via " + esc(src);
+  if (src === "manual") return "manual entry";
+  if (/\.(csv|xlsx)$/i.test(src)) return (src.endsWith(".csv") ? "CSV import" : "xlsx import") + " (" + esc(src) + ")";
+  return "entered";
+}
+function liveSyncBadge(p) {
+  const src = (p.source || "").trim();
+  const isBroker = BROKER_SOURCE_RE.test(src);
+  const label = isBroker ? "⟳ live" : "⟳ synced";
+  const cls = isBroker ? "live" : "synced";
+  const synced = p.lastSynced ? fmtDateTime(p.lastSynced) : "—";
+  const title = `${esc(p.category)} · ${liveSyncSourceDesc(src, isBroker)} · last updated ${synced}`
+    + ` · this row is fed from the Investments tab — edit it there, not here`;
+  return `<span class="chip ${cls}" title="${title}">${label}</span>`;
 }
 
 /* paired horizontal bars per row — e.g. Invested vs Current value, with return % */
@@ -505,7 +527,7 @@ function gaugeArc(frac, bigLabel, subLabel, color) {
   const pt = a => [cx + r * Math.cos(a), cy - r * Math.sin(a)];
   const [lx, ly] = pt(Math.PI), [rx, ry] = pt(0), [ex, ey] = pt(Math.PI * (1 - p));
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin:0 auto">
-    <path d="M ${lx.toFixed(1)} ${ly.toFixed(1)} A ${r} ${r} 0 0 1 ${rx.toFixed(1)} ${ry.toFixed(1)}" fill="none" stroke="#eef1f7" stroke-width="${sw}" stroke-linecap="round"/>
+    <path d="M ${lx.toFixed(1)} ${ly.toFixed(1)} A ${r} ${r} 0 0 1 ${rx.toFixed(1)} ${ry.toFixed(1)}" fill="none" stroke="var(--line)" stroke-width="${sw}" stroke-linecap="round"/>
     <path d="M ${lx.toFixed(1)} ${ly.toFixed(1)} A ${r} ${r} 0 0 1 ${ex.toFixed(1)} ${ey.toFixed(1)}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>
     <text x="${cx}" y="${cy - 12}" text-anchor="middle" font-size="27" font-weight="700" fill="var(--ink)">${esc(bigLabel)}</text>
     <text x="${cx}" y="${cy + 7}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(subLabel || "")}</text>
@@ -630,14 +652,14 @@ PAGES.dashboard = () => {
       const nwLX = pad + Math.min(nwW, usable) / 2;
       const lLX  = pad + nwW + lW / 2;
       return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin-top:8px">
-        <text x="${W/2}" y="13" text-anchor="middle" font-size="10" fill="#6b7385">Total Assets · ${fmtMoney(assets, true)}</text>
+        <text x="${W/2}" y="13" text-anchor="middle" font-size="10" fill="var(--muted)">Total Assets · ${fmtMoney(assets, true)}</text>
         <defs><clipPath id="nwBarClip"><rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}"/></clipPath></defs>
-        <rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}" fill="#e3f5ec"/>
-        <rect x="${pad}" y="${barY}" width="${nwW}" height="${barH}" fill="#2456e6" clip-path="url(#nwBarClip)"/>
-        ${liab > 0 ? `<rect x="${pad + nwW}" y="${barY}" width="${lW}" height="${barH}" fill="#e84255" clip-path="url(#nwBarClip)"/>` : ""}
+        <rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}" fill="var(--green-soft)"/>
+        <rect x="${pad}" y="${barY}" width="${nwW}" height="${barH}" fill="var(--accent)" clip-path="url(#nwBarClip)"/>
+        ${liab > 0 ? `<rect x="${pad + nwW}" y="${barY}" width="${lW}" height="${barH}" fill="var(--red)" clip-path="url(#nwBarClip)"/>` : ""}
         ${liab > 0 ? `<line x1="${pad + nwW}" y1="${barY}" x2="${pad + nwW}" y2="${barY + barH}" stroke="white" stroke-width="2"/>` : ""}
-        <text x="${nwLX}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#2456e6">Net Worth · ${fmtMoney(net, true)}</text>
-        ${liab > 0 ? `<text x="${lLX}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#cc3344">Liabilities · ${fmtMoney(liab, true)}</text>` : ""}
+        <text x="${nwLX}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--accent)">Net Worth · ${fmtMoney(net, true)}</text>
+        ${liab > 0 ? `<text x="${lLX}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--red)">Liabilities · ${fmtMoney(liab, true)}</text>` : ""}
       </svg>`;
     } else {
       // liab > assets — negative net worth; scale to liabilities
@@ -645,13 +667,13 @@ PAGES.dashboard = () => {
       const aW = Math.max(0, assets * scale);
       const excessW = usable - aW;
       return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin-top:8px">
-        <text x="${W/2}" y="13" text-anchor="middle" font-size="10" fill="#cc3344">Net Worth · ${fmtMoney(net, true)}</text>
+        <text x="${W/2}" y="13" text-anchor="middle" font-size="10" fill="var(--red)">Net Worth · ${fmtMoney(net, true)}</text>
         <defs><clipPath id="nwBarClip"><rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}"/></clipPath></defs>
-        <rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}" fill="#fbe9ec"/>
-        <rect x="${pad}" y="${barY}" width="${aW}" height="${barH}" fill="#22a366" clip-path="url(#nwBarClip)"/>
+        <rect x="${pad}" y="${barY}" width="${usable}" height="${barH}" rx="${rx}" fill="var(--red-soft)"/>
+        <rect x="${pad}" y="${barY}" width="${aW}" height="${barH}" fill="var(--green)" clip-path="url(#nwBarClip)"/>
         <line x1="${pad + aW}" y1="${barY}" x2="${pad + aW}" y2="${barY + barH}" stroke="white" stroke-width="2"/>
-        <text x="${pad + aW / 2}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#108a4d">Assets · ${fmtMoney(assets, true)}</text>
-        <text x="${pad + aW + excessW / 2}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="#cc3344">Excess Debt · ${fmtMoney(liab - assets, true)}</text>
+        <text x="${pad + aW / 2}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--green)">Assets · ${fmtMoney(assets, true)}</text>
+        <text x="${pad + aW + excessW / 2}" y="${barY + barH + 16}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--red)">Excess Debt · ${fmtMoney(liab - assets, true)}</text>
       </svg>`;
     }
   })();
@@ -1195,17 +1217,17 @@ function salaryGrowthChart(persons) {
   const yOf = v => PT + cH - (v / maxVal * cH);
   const grid = [0, 0.25, 0.5, 0.75, 1].map(pct => {
     const y = PT + cH * (1 - pct), v = maxVal * pct;
-    return `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="#e4e8f0" stroke-dasharray="4,4"/>
-      <text x="${PL - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="#6b7385">${fmtMoney(v, true)}</text>`;
+    return `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="var(--line)" stroke-dasharray="4,4"/>
+      <text x="${PL - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmtMoney(v, true)}</text>`;
   }).join("");
   const xLabels = allYears.map((y, i) =>
-    `<text x="${xOf(i)}" y="${H - 8}" text-anchor="middle" font-size="12" fill="#1c2333">${y}</text>`).join("");
+    `<text x="${xOf(i)}" y="${H - 8}" text-anchor="middle" font-size="12" fill="var(--ink)">${y}</text>`).join("");
   const seriesSVG = series.map(s => {
     const pts = allYears.map((y, i) => s.map[y] !== undefined ? { x: xOf(i), y: yOf(s.map[y]), v: s.map[y] } : null).filter(Boolean);
     if (!pts.length) return "";
     const line = pts.length >= 2 ? `<polyline points="${pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}"
       fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : "";
-    const dots = pts.map(p => `<g><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${s.color}" stroke="#fff" stroke-width="2"/>
+    const dots = pts.map(p => `<g><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${s.color}" stroke="var(--panel)" stroke-width="2"/>
       <title>${s.name} ${fmtMoney(p.v)}/yr</title></g>`).join("");
     return line + dots;
   }).join("");
@@ -1227,7 +1249,7 @@ function salaryGrowthChart(persons) {
     <div style="overflow-x:auto">
       <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${W}px;display:block">
         ${grid}
-        <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT + cH}" stroke="#e4e8f0"/>
+        <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT + cH}" stroke="var(--line)"/>
         ${xLabels}${seriesSVG}
       </svg>
     </div>
@@ -1613,7 +1635,7 @@ PAGES.portfolio = () => {
       const curCell = (p.liveSync || hideValues) ? `<td class="num">${fmtMoney(num(p.currentValue))}</td>`
         : `<td class="num"><input class="inline-input" value="${num(p.currentValue).toLocaleString("en-IN")}" onchange="updHolding(${i},'currentValue',this.value)"></td>`;
       const actionsCell = p.liveSync
-        ? `<td><span class="chip live" title="${esc(p.category)} · synced ${p.lastSynced ? fmtDateTime(p.lastSynced) : "—"}">⟳ live</span></td>`
+        ? `<td>${liveSyncBadge(p)}</td>`
         : `<td><button class="icon-btn" onclick="editHolding(${i})">✎</button>
               <button class="icon-btn danger" onclick="delHolding(${i})">✕</button></td>`;
       return `<tr><td><b>${esc(p.category)}</b>${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}</td>

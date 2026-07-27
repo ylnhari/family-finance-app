@@ -70,6 +70,11 @@ def live_rows(accounts: list, holdings_by_account: dict, now_iso: str) -> list:
             "invested": totals_for_account["invested"],
             "currentValue": totals_for_account["current"],
             "lastSynced": now_iso,
+            # holdings snapshot source ("kite api", "upstox api", "kite api (coin)",
+            # "manual", or an imported CSV/xlsx filename) — lets the main app tell a
+            # true broker-API live sync apart from manual/CSV/xlsx entry made in the
+            # Investments tab (see public/app.js liveSyncBadge()).
+            "source": snapshot.get("source", ""),
         })
     return rows
 

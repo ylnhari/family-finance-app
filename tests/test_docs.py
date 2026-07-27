@@ -148,6 +148,33 @@ class DocsRouteTests(unittest.TestCase):
         # no leftover literal pipe-delimited lines
         self.assertNotRegex(html, r"<p>\|.*\|</p>")
 
+    def test_soft_wrapped_list_item_stays_one_li(self):
+        # A bullet whose text is hard-wrapped across source lines must render as a
+        # SINGLE <li>. It used to close the <ul> and emit the continuation as an
+        # un-indented <p> under the bullet, which read as broken layout in the
+        # in-app docs viewer.
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import server as srv
+        html = srv.render_markdown(
+            "- Know which port your app serves on. Default is **8765**; you may\n"
+            "  have set a different one via `--port`.\n"
+            "- Second bullet.\n"
+            "\n"
+            "A real paragraph after the list.\n"
+        )
+        self.assertIn("have set a different one", html)
+        # the continuation belongs inside the first <li>, not in its own <p>
+        self.assertNotRegex(html, r"<p>\s*have set a different")
+        self.assertEqual(html.count("<li>"), 2)
+        self.assertEqual(html.count("<ul>"), 1)  # list not split in two
+        first_li = html.split("<li>")[1].split("</li>")[0]
+        self.assertIn("Default is <strong>8765</strong>", first_li)
+        self.assertIn("<code>--port</code>", first_li)
+        # a genuine paragraph after a blank line still closes the list normally
+        self.assertIn("</ul>", html)
+        self.assertIn("<p>A real paragraph after the list.</p>", html)
+
     def test_markdown_table_alignment_colons(self):
         if ROOT not in sys.path:
             sys.path.insert(0, ROOT)

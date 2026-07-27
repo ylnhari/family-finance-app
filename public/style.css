@@ -23,6 +23,7 @@
 :root[data-theme="dark"] .inline-input:hover,:root[data-theme="dark"] .inline-select:hover{background:#0f1622;border-color:#2c3648}
 :root[data-theme="dark"] .chip.gray{background:#232c3d;color:var(--muted)}
 :root[data-theme="dark"] .chip.live{background:#152a44;color:#7fb2f5}
+:root[data-theme="dark"] .chip.synced{background:#232c3d;color:#9aa6bd}
 :root[data-theme="dark"] .modal{background:var(--panel)}
 :root[data-theme="dark"] .bar-row .bar-track,:root[data-theme="dark"] .progress{background:#232c3d}
 :root[data-theme="dark"] .drop-zone{border-color:#39435a}
@@ -75,7 +76,13 @@ body{font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;ba
 .live-frame{display:block;width:100%;height:100%;border:0}
 
 /* ---------- live-synced portfolio rows ---------- */
+/* .chip.live = broker API sync (kite/upstox — genuinely refreshes on sync).
+   .chip.synced = same read-only Investments-tab-owned row, but the source is
+   manual entry / CSV / xlsx import, which does NOT refresh on its own — kept
+   visually distinct (neutral gray, not "live" blue) so it isn't mistaken for
+   a broker connection. See liveSyncBadge() in app.js. */
 .chip.live{background:#e3f0fd;color:#1670c9;display:inline-flex;align-items:center;gap:4px;cursor:default}
+.chip.synced{background:#eef0f5;color:#4b5568;display:inline-flex;align-items:center;gap:4px;cursor:default}
 .page-note.warn{background:var(--amber-soft);color:var(--amber)}
 .page-note.warn b{color:var(--amber)}
 
