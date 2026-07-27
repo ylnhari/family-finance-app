@@ -11,8 +11,9 @@ imports/*
 # Secrets (Gemini key, broker API keys) - NEVER commit; ship .env.example instead
 .env
 
-# Optional local virtualenv for the investments extras (requirements-invest.txt)
-.venv/
+# Optional local virtualenvs: .venv/ for the investments extras
+# (requirements-invest.txt), .venv-noextras/ for the zero-install test run (see CLAUDE.md)
+.venv*/
 
 # Throwaway demo sandbox (server --demo seeds this from samples/) - never commit
 demo-data/
