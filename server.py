@@ -10,6 +10,7 @@ The app code contains no personal information - share the folder freely,
 just keep (or delete) your own data directory.
 """
 import argparse
+import portlib
 import base64
 import json
 import os
@@ -41,8 +42,6 @@ DEMO_DATA_DIR = os.path.join(APP_DIR, "demo-data")  # throwaway sandbox for --de
 # ── port configuration ────────────────────────────────────────────────────────
 PORTS_FILE_NAME  = "ports.json"
 REGISTRY_KEY     = "family-finance-app"
-DEFAULT_PORT     = 8765
-MAX_PORT_TRIES   = 50
 MAX_SEARCH_DEPTH = 3
 
 MIME = {
@@ -950,27 +949,21 @@ def app_already_running(port, data_dir):
         return False
 
 
-def _find_ports_file(start_dir):
-    d = os.path.abspath(start_dir)
-    for _ in range(MAX_SEARCH_DEPTH):
-        candidate = os.path.join(d, PORTS_FILE_NAME)
-        if os.path.isfile(candidate):
-            return candidate
-        parent = os.path.dirname(d)
-        if parent == d:
-            break
-        d = parent
-    return None
-
 def get_registered_port():
-    pf = _find_ports_file(APP_DIR)
-    if pf:
-        try:
-            with open(pf) as f:
-                return json.load(f)["registry"][REGISTRY_KEY]["port"]
-        except Exception:
-            pass
-    return None   # not registered — caller must supply --port
+    """This project's port. See portlib for the precedence."""
+    # No default on purpose: the CHANGELOG records that this server
+    # must fail clearly rather than hunt for a free port.
+    try:
+        return portlib.resolve_port(
+            "family-finance-app",
+            env_var="FAMILY_FINANCE_PORT",
+            default=None,
+            start=Path(__file__).resolve().parent)
+    except portlib.PortError as e:
+        print(e)
+        sys.exit(1)
+
+
 
 
 def _lan_ipv4s():

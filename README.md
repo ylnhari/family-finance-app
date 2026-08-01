@@ -11,7 +11,7 @@ No accounts, no cloud, no dependencies — just Python and a browser.
 ```
 git clone <this-repo-url>
 cd family-finance-app
-python server.py --port 8765   # or double-click start.bat (Windows) / ./start.sh (Mac & Linux)
+python server.py --port 8765   # start.bat / start.sh forward arguments: "start.bat --port 8765"
 ```
 
 The app opens at http://127.0.0.1:8765. Press Ctrl+C to stop.
@@ -23,10 +23,12 @@ only *live* broker/NSE sync in the investments dashboard needs an optional extra
 [Live Investments](#live-investments) below.
 
 **Choosing the port:** the server binds a fixed port and **does not hunt for a free one**.
-It reads the port from a sibling `ports.json` registry if present, otherwise you pass
-`--port`. If the chosen port is already in use it stops with a clear message (re-running while
-the app is already up just opens the running instance). Other options: `--data-dir
-/path/to/data`, `--host`, `--no-browser`.
+There is deliberately no default port: it's often pinned by broker OAuth redirect URLs
+registered with Kite/Upstox, so it must be chosen consciously rather than assumed. The
+precedence is `--port` > `FAMILY_FINANCE_PORT` env var > a sibling `ports.json` registry
+entry > a clear error telling you to set one of the above. If the chosen port is already
+in use it stops with a clear message (re-running while the app is already up just opens
+the running instance). Other options: `--data-dir /path/to/data`, `--host`, `--no-browser`.
 
 **Next:** try the demo dataset below, or jump straight to using it with your own data.
 
