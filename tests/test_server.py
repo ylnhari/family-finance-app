@@ -457,6 +457,63 @@ class ServerTests(unittest.TestCase):
         self.assertNotIn("<td class=\"sym\">${i.name}", text)
         self.assertNotIn("<td class=\"sym\">${s.symbol}", text)
 
+    def test_cards_companion_launcher_is_local_and_data_isolated(self):
+        st, body, _ = _raw("GET", self.base + "/app.js")
+        self.assertEqual(st, 200)
+        text = body.decode("utf-8")
+        start = text.index("const MYCARD_BENEFITS_URL_KEY")
+        end = text.index("function maskNum", start)
+        launcher = text[start:end]
+        self.assertIn('"ffa_mycard_benefits_url"', launcher)
+        self.assertIn("FFACompanion.normalizeMyCardBenefitsURL", launcher)
+        self.assertNotIn("localHosts", launcher)
+        self.assertNotIn("prompt(", launcher)
+        self.assertIn('formModal("MyCard Benefits companion"', launcher)
+        self.assertIn('submitLabel: "Save companion"', launcher)
+        self.assertIn('dialog.setAttribute("role", "dialog")', launcher)
+        self.assertIn('dialog.setAttribute("aria-modal", "true")', launcher)
+        self.assertIn('dialog.setAttribute("aria-labelledby", title.id)', launcher)
+        self.assertIn('new URL("/api/v1/health", target.origin)', launcher)
+        self.assertIn('credentials: "omit"', launcher)
+        self.assertIn('referrerPolicy: "no-referrer"', launcher)
+        self.assertIn('"_blank", "noopener,noreferrer"', launcher)
+        self.assertIn('window.open("about:blank", "_blank")', launcher)
+        self.assertIn("popup.opener = null", launcher)
+        self.assertIn('referrer.content = "no-referrer"', launcher)
+        self.assertIn("popup.location.replace(target.href)", launcher)
+        self.assertIn("popup.location.replace(helpURL)", launcher)
+        self.assertLess(
+            launcher.index("const popup = myCardBenefitsHandoff();"),
+            launcher.index("await fetch("),
+        )
+        self.assertLess(
+            launcher.index("popup.opener = null"),
+            launcher.index("popup.location.replace(target.href)"),
+        )
+        self.assertIn('"/docs/MYCARD-BENEFITS.md"', launcher)
+        self.assertIn("MyCard Benefits is unavailable; opening the local setup guide", launcher)
+        self.assertIn("does not verify destination identity", launcher)
+        for forbidden in ("DB.cards", "/api/data", "postMessage", "document.cookie"):
+            self.assertNotIn(forbidden, launcher)
+        cards_start = text.index("PAGES.cards = () =>")
+        cards_end = text.index("function toggleReveal", cards_start)
+        cards_page = text[cards_start:cards_end]
+        self.assertIn("MyCard Benefits companion", cards_page)
+        self.assertIn('onclick="openMyCardBenefits()"', cards_page)
+        self.assertIn('onclick="configureMyCardBenefits()"', cards_page)
+
+    def test_companion_url_policy_script_is_served_before_app(self):
+        st, body, _ = _raw("GET", self.base + "/companion-url.js")
+        self.assertEqual(st, 200)
+        text = body.decode("utf-8")
+        self.assertIn("normalizeMyCardBenefitsURL", text)
+        self.assertIn("isTailscaleIPv4", text)
+        self.assertIn('["http:", "https:"].includes(url.protocol)', text)
+        st, body, _ = _raw("GET", self.base + "/")
+        self.assertEqual(st, 200)
+        page = body.decode("utf-8")
+        self.assertLess(page.index('src="companion-url.js"'), page.index('src="app.js"'))
+
     def test_invest_page_has_manual_holdings_editor(self):
         # JOB-5 fix 2: the "Track manually" path now has a real add/edit/remove
         # holdings UI wired to POST /api/invest/manual.

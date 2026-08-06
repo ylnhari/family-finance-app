@@ -34,5 +34,5 @@ jobs:
       - name: Python tests (server, persistence, --demo isolation, gemini parse)
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
-      - name: JS tests (EMI/amortization/prepayment math + sample-data integrity)
-        run: node --test tests/math.test.js tests/sample.test.js
+      - name: JS tests (finance math, sample integrity, companion URL policy)
+        run: node --test tests/math.test.js tests/sample.test.js tests/companion-url.test.js

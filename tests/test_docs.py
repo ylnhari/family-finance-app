@@ -217,8 +217,23 @@ class DocsRouteTests(unittest.TestCase):
     def test_docs_route_matches_actual_files_on_disk(self):
         # The route serves whatever's really in docs/ — cross-check both
         # tracked files exist so this test can't silently drift from disk.
-        for name in ("BROKER-SETUP.md", "NOTIFICATIONS.md"):
+        for name in ("BROKER-SETUP.md", "NOTIFICATIONS.md", "MYCARD-BENEFITS.md"):
             self.assertTrue(os.path.isfile(os.path.join(DOCS_DIR, name)))
+
+    def test_mycard_benefits_doc_served(self):
+        st, body, ctype = _raw("GET", self.base + "/docs/MYCARD-BENEFITS.md")
+        self.assertEqual(st, 200)
+        self.assertIn("text/html", ctype)
+        text = body.decode("utf-8")
+        self.assertIn("MyCard Benefits", text)
+        self.assertIn("127.0.0.1", text)
+        self.assertIn("Rover", text)
+        self.assertIn("proxy_url", text)
+        self.assertIn("Every other remote destination must use", text)
+        self.assertIn("100.64.0.0/10", text)
+        self.assertIn("destination identity is not yet verified", text)
+        self.assertIn("never expose", text)
+        self.assertIn("no card name, number, expiry, CVV, PIN", text)
 
     def test_invest_html_links_to_local_docs_path(self):
         # D4/JOB-3: onboarding panel should link the local offline path first

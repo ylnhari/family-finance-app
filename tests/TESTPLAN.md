@@ -46,6 +46,7 @@ and math regressions.
 | GET/PUT persistence | integration | `test_server.py` | roundtrip, full-document sections preserved |
 | Concurrent writes (regression) | integration | `test_server.py` | 20 parallel PUTs, no `Errno 13`, file stays valid (the save-lock fix) |
 | Static serving + shared theme | integration | `test_server.py` | index.html, finance-math.js, theme.js wired into both `/` and `/invest` (D11: one `ffa_theme` key) |
+| Optional MyCard companion | unit + integration | `companion-url.test.js`, `test_server.py`, `test_docs.py` | origin normalization, loopback/Tailscale/HTTPS boundary, launcher privacy, setup guide |
 | File lifecycle | integration | `test_server.py` | upload→list→download→delete, dedupe, empty rejected |
 | Security / errors | integration | `test_server.py` | path-traversal blocked, unknown route 404, invalid JSON 400, delete-missing 404 |
 | Backup / restore | integration | `test_server.py` | snapshot→restore roundtrip, missing backup 404 |
@@ -203,3 +204,11 @@ exercised against an **in-process** server boot (`test_server.py::_boot_inproces
 so `unittest.mock.patch.object` can actually intercept the call — subprocess-booted
 servers (used everywhere else in `test_server.py`) can't be mocked from the parent test
 process.
+
+## Companion checkpoint — 2026-08-07
+
+The dated JOB-4 snapshot above is retained as historical evidence. After the
+optional MyCard Benefits companion was added, a complete run reported 207
+Python tests and 51 Node tests (33 math + 14 sample + 4 companion policy), for
+258 passing cases. The companion cases are now part of both normal test
+runners, not a separate optional command.
