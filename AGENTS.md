@@ -1,6 +1,6 @@
-# Claude Instructions — family-finance-app
+# Codex Instructions — family-finance-app
 
-> **Setup:** `CLAUDE.local.md` is an optional ignored host-local overlay. Verify actual host support before relying on it; keep machine values in the documented local configuration boundary.
+> **Setup:** `Codex.local.md` is an optional ignored host-local overlay. Do not assume a loader reads it: verify actual host support before relying on it. Keep machine values in the documented local configuration boundary.
 
 ## Role
 Maintain a self-contained local finance tracker. No cloud, no accounts, no external deps — Python stdlib + browser only.
@@ -104,7 +104,7 @@ test.bat  / test.sh    # Test runners
      `docs/NOTIFICATIONS.md`, linked from the UI where the user needs them.
    - **Nothing personal in tracked files** — no names, client ids, real ISINs, machine
      paths, ports, IPs or topics, in code, tests, demo data or docs. Machine-local values
-     belong in gitignored `.env` / `CLAUDE.local.md`; `.env.example` ships blank.
+     belong in gitignored `.env` / `Codex.local.md`; `.env.example` ships blank.
    - **Escape everything you render.** `public/app.js` and `public/invest.html` each have
      an `esc()` helper; user- and broker-supplied strings (labels, symbols, IPO names,
      filenames) go through it. A missing escape here was a real stored-XSS bug.
@@ -166,3 +166,5 @@ node --test tests/math.test.js tests/sample.test.js   # money math + sample-data
 - Frontend changes: hard-refresh the browser (Ctrl+Shift+R) to clear cache.
 - Keep all money math in `finance-math.js` (testable), not inline in `app.js`.
 - Never add a feature that *requires* an external service call (AI stays optional and key-gated).
+
+## Imported Claude Cowork project instructions
