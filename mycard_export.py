@@ -36,30 +36,71 @@ class ExportRejected(ValueError):
     """Raised with a value-free message when a handoff is unsafe or unusable."""
 
 
-def _has_linked_parent(path: Path) -> bool:
-    current = path
-    while True:
-        if current.is_symlink():
-            return True
-        if current.parent == current:
-            return False
-        current = current.parent
+PathIdentity = tuple[int, int, int]
+PathSnapshot = tuple[tuple[Path, PathIdentity], ...]
+
+
+def _identity(info: os.stat_result) -> PathIdentity:
+    """A path identity that is meaningful for both POSIX and Windows NTFS."""
+    return (info.st_dev, info.st_ino, getattr(info, "st_file_attributes", 0))
+
+
+def _safe_lstat(path: Path) -> os.stat_result:
+    """Stat one existing local item without following symlinks/reparse points."""
+    try:
+        info = os.lstat(path)
+    except OSError as exc:
+        raise ExportRejected("local path is unavailable") from exc
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    try:
+        is_junction = getattr(path, "is_junction", lambda: False)()
+    except OSError as exc:
+        raise ExportRejected("local path is unavailable") from exc
+    if stat.S_ISLNK(info.st_mode) or bool(reparse and info.st_file_attributes & reparse) or is_junction:
+        raise ExportRejected("path must not use a symlink or junction")
+    return info
+
+
+def _snapshot_chain(path: Path) -> PathSnapshot:
+    """Capture every existing ancestor so a later path swap is detectable."""
+    candidate = path.expanduser().absolute()
+    if not candidate.is_absolute():
+        raise ExportRejected("path must be a local absolute path")
+    parts = candidate.parts
+    if not parts:
+        raise ExportRejected("path must be a local absolute path")
+    current = Path(parts[0])
+    snapshot: list[tuple[Path, PathIdentity]] = [(current, _identity(_safe_lstat(current)))]
+    for part in parts[1:]:
+        current /= part
+        snapshot.append((current, _identity(_safe_lstat(current))))
+    return tuple(snapshot)
+
+
+def _assert_chain_unchanged(snapshot: PathSnapshot) -> None:
+    for path, expected in snapshot:
+        if _identity(_safe_lstat(path)) != expected:
+            raise ExportRejected("local path changed while opening")
 
 
 def _regular_file(path: Path, *, output: bool = False) -> Path:
     candidate = path.expanduser().absolute()
-    if not candidate.is_absolute() or _has_linked_parent(candidate):
-        raise ExportRejected("path must be a regular local path")
     if output:
-        if candidate.exists():
+        _snapshot_chain(candidate.parent)
+        try:
+            _safe_lstat(candidate)
+        except ExportRejected as exc:
+            if not isinstance(exc.__cause__, FileNotFoundError):
+                # A present output (regular file, symlink, or junction) must
+                # never be reused; do not make a best-effort overwrite.
+                raise ExportRejected("output already exists; choose a new empty file") from exc
+        else:
             raise ExportRejected("output already exists; choose a new empty file")
-        if not candidate.parent.is_dir() or candidate.parent.is_symlink():
+        if not candidate.parent.is_dir():
             raise ExportRejected("output folder is unavailable")
     else:
-        try:
-            info = candidate.stat()
-        except OSError as exc:
-            raise ExportRejected("source file is unavailable") from exc
+        _snapshot_chain(candidate.parent)
+        info = _safe_lstat(candidate)
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_SOURCE_BYTES:
             raise ExportRejected("source file is invalid or too large")
     return candidate
@@ -67,10 +108,28 @@ def _regular_file(path: Path, *, output: bool = False) -> Path:
 
 def _read_source(path: Path) -> str:
     safe = _regular_file(path)
+    source_identity = _identity(_safe_lstat(safe))
+    parent_snapshot = _snapshot_chain(safe.parent)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = None
     try:
-        raw = safe.read_bytes()
+        descriptor = os.open(safe, flags)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or _identity(opened) != source_identity:
+            raise ExportRejected("source changed while opening")
+        _assert_chain_unchanged(parent_snapshot)
+        if _identity(_safe_lstat(safe)) != source_identity:
+            raise ExportRejected("source changed while opening")
+        with os.fdopen(descriptor, "rb", closefd=True) as handle:
+            descriptor = None
+            raw = handle.read(MAX_SOURCE_BYTES + 1)
     except OSError as exc:
         raise ExportRejected("source file cannot be read") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
     if len(raw) > MAX_SOURCE_BYTES:
         raise ExportRejected("source file is too large")
     try:
@@ -262,6 +321,7 @@ def write_card_only_export(source: Path, output: Path) -> int:
     """Atomically create a new private handoff file and return its card count."""
     source = _regular_file(source)
     output = _regular_file(output, output=True)
+    output_parent_snapshot = _snapshot_chain(output.parent)
     handoff = build_card_only_export(_read_source(source))
     payload = json.dumps(handoff, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     descriptor = None
@@ -278,6 +338,17 @@ def write_card_only_export(source: Path, output: Path) -> int:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        temporary_identity = _identity(_safe_lstat(temporary))
+        _assert_chain_unchanged(output_parent_snapshot)
+        try:
+            _safe_lstat(output)
+        except ExportRejected as exc:
+            if not isinstance(exc.__cause__, FileNotFoundError):
+                raise ExportRejected("output already exists; choose a new empty file") from exc
+        else:
+            raise ExportRejected("output already exists; choose a new empty file")
+        if _identity(_safe_lstat(temporary)) != temporary_identity:
+            raise ExportRejected("temporary output changed while finalizing")
         # Hard-linking creates the final name only when it did not already
         # exist.  Unlike os.replace(), it cannot race into overwriting an
         # unrelated sensitive handoff someone created after our first check.

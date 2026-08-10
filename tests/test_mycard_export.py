@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import mycard_export
 
@@ -90,3 +91,46 @@ class MyCardExportTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertTrue(os.path.isfile(source))
             self.assertNotIn("SYNTHETIC-ONLY-PAN", stderr.getvalue())
+
+    def test_junction_or_reparse_source_is_rejected_before_opening(self):
+        with tempfile.TemporaryDirectory(prefix="ffa-mycard-export-") as tmp:
+            source = Path(tmp) / "source.json"
+            source.write_text(json.dumps(synthetic_source()), encoding="utf-8")
+            # This is synthetic rather than creating a real junction, so the
+            # test remains portable and never needs administrator privileges.
+            with mock.patch.object(Path, "is_junction", return_value=True, create=True):
+                with self.assertRaises(mycard_export.ExportRejected):
+                    mycard_export._read_source(source)
+
+    def test_source_identity_swap_after_open_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="ffa-mycard-export-") as tmp:
+            source = Path(tmp) / "source.json"
+            source.write_text(json.dumps(synthetic_source()), encoding="utf-8")
+            real_fstat = os.fstat
+
+            def swapped_identity(descriptor):
+                info = real_fstat(descriptor)
+                values = list(info)
+                values[1] = values[1] + 1  # st_ino in os.stat_result's stable tuple layout
+                return os.stat_result(values)
+
+            with mock.patch("mycard_export.os.fstat", side_effect=swapped_identity):
+                with self.assertRaises(mycard_export.ExportRejected):
+                    mycard_export._read_source(source)
+
+    def test_output_parent_swap_after_temp_creation_fails_closed_and_cleans_up(self):
+        with tempfile.TemporaryDirectory(prefix="ffa-mycard-export-") as tmp:
+            source = Path(tmp) / "source.json"
+            output = Path(tmp) / "handoff.json"
+            source.write_text(json.dumps(synthetic_source()), encoding="utf-8")
+            # The first assertion follows the source descriptor open; the
+            # second is the output-parent recheck immediately before linking.
+            with mock.patch.object(
+                mycard_export,
+                "_assert_chain_unchanged",
+                side_effect=[None, mycard_export.ExportRejected("local path changed while opening")],
+            ):
+                with self.assertRaises(mycard_export.ExportRejected):
+                    mycard_export.write_card_only_export(source, output)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(Path(tmp).glob(".handoff.json.*.tmp")), [])
