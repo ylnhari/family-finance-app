@@ -20,6 +20,7 @@ def synthetic_source(*, extra_card_field=False, network="VISA", status=""):
         "owner": "SYNTHETIC-ONLY Owner",
         "type": "Credit",
         "variant": network,
+        "variantSubType": "SYNTHETIC-ONLY subtype",
         "number": "SYNTHETIC-ONLY-PAN",
         "expiry": "2030-05-01",
         "cvv": "SYNTHETIC-ONLY-CVV",
@@ -57,6 +58,14 @@ class MyCardExportTests(unittest.TestCase):
     def test_unknown_card_field_is_rejected_instead_of_silently_exported(self):
         with self.assertRaises(mycard_export.ExportRejected):
             mycard_export.build_card_only_export(json.dumps(synthetic_source(extra_card_field=True)))
+
+    def test_variant_sub_type_is_the_only_newly_admitted_metadata_field(self):
+        payload = mycard_export.build_card_only_export(json.dumps(synthetic_source()))
+        self.assertEqual(payload["cards"][0]["variantSubType"], "SYNTHETIC-ONLY subtype")
+        source = synthetic_source()
+        source["cards"][0]["variantTier"] = "SYNTHETIC-ONLY tier"
+        with self.assertRaises(mycard_export.ExportRejected):
+            mycard_export.build_card_only_export(json.dumps(source))
 
     def test_adapter_incompatible_network_and_status_are_rejected(self):
         for kwargs in ({"network": "Priority Pass"}, {"status": "retired"}):

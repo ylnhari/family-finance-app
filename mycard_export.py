@@ -26,7 +26,7 @@ MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_CARDS = 1_000
 ROOT_KEYS = frozenset({"schemaVersion", "cards"})
 CARD_FIELDS = frozenset({
-    "id", "name", "bank", "owner", "type", "variant", "number", "expiry",
+    "id", "name", "bank", "owner", "type", "variant", "variantSubType", "number", "expiry",
     "cvv", "pin", "fees", "benefits", "lounge", "loungeCriteria", "status",
 })
 NETWORKS = frozenset({"visa", "mastercard", "amex", "rupay", "diners"})
