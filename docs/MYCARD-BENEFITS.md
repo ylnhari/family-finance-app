@@ -37,3 +37,34 @@ with an error and is not saved.
 
 Configure the companion only when you want to use it. Clearing the setup field
 removes the browser-local URL and has no effect on either application's data.
+
+## Optional one-time card handoff
+
+If you choose to bring your existing cards into MyCard Benefits, create a
+**separate local card-only file**. It is not automatic and it never calls the
+Family Finance HTTP API, sends data over the network, or includes transactions,
+ledgers, documents, loans, investments, or settings.
+
+From the Family Finance folder, choose a new private destination outside a
+shared/downloads folder and run:
+
+```powershell
+python mycard_export.py --source data\finances.json --output C:\private\mycard-card-only.json
+```
+
+The command prints only a card count. It refuses unknown card fields or an
+invalid card shape rather than dropping data silently. The output contains the
+minimum native card fields MyCard Benefits currently supports, including any
+number/expiry/CVV/PIN fields that were already stored in Family Finance, so
+treat that temporary file as sensitive. Import it immediately into MyCard
+Benefits, then securely remove the handoff file if you no longer need it:
+
+```powershell
+cd C:\path\to\mycard-benefits
+uv run mycard-vault --data-dir data --keyring consolidate --family-finance C:\private\mycard-card-only.json
+```
+
+MyCard Benefits shows a count-and-digest preview first and requires a fresh
+local passphrase before any encrypted vault change. It rejects whole Family
+Finance documents; only the two-key card-only export above is accepted. This
+handoff is optional: Family Finance remains fully usable without it.

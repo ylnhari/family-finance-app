@@ -95,7 +95,7 @@ Export / Import in Settings). To let someone else use the app, just give them th
   - standalone EMI calculator, attach files/links to each loan, mark closed
 - **Lending** — track money lent to or borrowed from people; stays outside net worth
 - **Goals** — future purchases with down-payment/loan/EMI planning; one click converts a goal into a live loan
-- **Cards** — wallet view of credit/debit cards with masked numbers (reveal on demand), benefits, lounge access, fees, activate/deactivate; filter by bank, owner, type (cards without a bank appear under "No Bank / Other"). Optionally launch the separate [MyCard Benefits companion](docs/MYCARD-BENEFITS.md); it never receives this app's card or user data.
+- **Cards** — wallet view of credit/debit cards with masked numbers (reveal on demand), benefits, lounge access, fees, activate/deactivate; filter by bank, owner, type (cards without a bank appear under "No Bank / Other"). Optionally launch the separate [MyCard Benefits companion](docs/MYCARD-BENEFITS.md). It never receives data from the launcher; a separate, explicit local card-only export is available if you choose to import cards once.
 - **Documents** — drag-and-drop file storage in your data folder, plus saved links
 - **Settings** — currency & locale (works for any country), family members, export/import, full wipe
 - **Backups** — automatic daily snapshot on the first save of each day (last 14 kept) **plus** manual "Backup now", one-click restore (with pre-restore safety snapshot) and per-backup download/delete in Settings
