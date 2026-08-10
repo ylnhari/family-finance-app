@@ -30,7 +30,7 @@ CARD_FIELDS = frozenset({
     "id", "name", "bank", "owner", "type", "variant", "variantSubType", "number", "expiry",
     "cvv", "pin", "fees", "benefits", "lounge", "loungeCriteria", "status",
 })
-NETWORKS = frozenset({"visa", "mastercard", "amex", "rupay", "diners"})
+NETWORKS = frozenset({"visa", "mastercard", "master card", "amex", "rupay", "diners"})
 
 
 class ExportRejected(ValueError):

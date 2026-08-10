@@ -72,6 +72,10 @@ class MyCardExportTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaises(mycard_export.ExportRejected):
                 mycard_export.build_card_only_export(json.dumps(synthetic_source(**kwargs)))
 
+    def test_legacy_spaced_master_card_network_is_preserved(self):
+        payload = mycard_export.build_card_only_export(json.dumps(synthetic_source(network="master card")))
+        self.assertEqual(payload["cards"][0]["variant"], "master card")
+
     def test_non_first_day_iso_expiry_is_preserved(self):
         payload = mycard_export.build_card_only_export(json.dumps(synthetic_source(expiry="2030-05-19")))
         self.assertEqual(payload["cards"][0]["expiry"], "2030-05-19")
