@@ -2310,94 +2310,10 @@ function goalToLoan(i) {
 let cardFilter = { owner: "", type: "", bank: "", status: "active", q: "" };
 const NO_BANK = "No Bank / Other";   // category for cards where a bank doesn't apply (Priority Pass, food cards…)
 let revealed = {};   // cardId -> bool (session only, never persisted)
-/* Optional companion. This explicitly entered browser-only setting is never
-   added to DB, included in /api/data, or derived from a card. */
-const MYCARD_BENEFITS_URL_KEY = "ffa_mycard_benefits_url";
-const MYCARD_BENEFITS_SETUP_DOC = "/docs/MYCARD-BENEFITS.md";
 const CARD_COLORS = ["linear-gradient(135deg,#243b80,#3a5fd0)","linear-gradient(135deg,#5b2580,#9347c9)",
   "linear-gradient(135deg,#0e6e52,#19b285)","linear-gradient(135deg,#8a3324,#d2693a)",
   "linear-gradient(135deg,#1c5d80,#2ba0c9)","linear-gradient(135deg,#6d1f45,#c14a7e)"];
 function cardColor(c) { let h = 0; for (const ch of (c.bank || c.name || "")) h = (h * 31 + ch.charCodeAt(0)) % 997; return CARD_COLORS[h % CARD_COLORS.length]; }
-function myCardBenefitsURL(raw) {
-  const normalized = FFACompanion.normalizeMyCardBenefitsURL(
-    raw || localStorage.getItem(MYCARD_BENEFITS_URL_KEY) || ""
-  );
-  return normalized ? new URL(normalized) : null;
-}
-function openMyCardBenefitsHelp() {
-  window.open(MYCARD_BENEFITS_SETUP_DOC, "_blank", "noopener,noreferrer");
-}
-function myCardBenefitsHandoff() {
-  const popup = window.open("about:blank", "_blank");
-  if (!popup) {
-    toast("Allow pop-ups for Family Finance, then try the companion again", true);
-    return null;
-  }
-  popup.opener = null;
-  const referrer = popup.document.createElement("meta");
-  referrer.name = "referrer";
-  referrer.content = "no-referrer";
-  popup.document.head.appendChild(referrer);
-  popup.document.title = "Opening MyCard Benefits";
-  popup.document.body.textContent = "Checking the configured MyCard Benefits companion…";
-  return popup;
-}
-function configureMyCardBenefits() {
-  const current = localStorage.getItem(MYCARD_BENEFITS_URL_KEY) || "";
-  const overlay = formModal("MyCard Benefits companion", [{
-    name: "url", label: "Base URL", value: current,
-    placeholder: "http://127.0.0.1:8777",
-  }], values => {
-    if (!values.url) {
-      localStorage.removeItem(MYCARD_BENEFITS_URL_KEY);
-      closeModal();
-      toast("MyCard Benefits companion setup cleared");
-      return;
-    }
-    const url = myCardBenefitsURL(values.url);
-    if (!url) {
-      toast("Use HTTPS remotely, or HTTP on loopback/a literal Tailscale IPv4, with no path, query, fragment, or credentials", true);
-      return;
-    }
-    localStorage.setItem(MYCARD_BENEFITS_URL_KEY, url.href);
-    closeModal();
-    toast("MyCard Benefits companion configured");
-  }, {
-    submitLabel: "Save companion",
-    note: "Use loopback locally, a literal Tailscale IPv4 Rover proxy, or your own HTTPS gateway. Leave blank to clear setup.",
-  });
-  const dialog = el(".modal", overlay);
-  const title = el("h3", dialog);
-  title.id = "mycard-benefits-setup-title";
-  dialog.setAttribute("role", "dialog");
-  dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-labelledby", title.id);
-}
-async function openMyCardBenefits() {
-  const target = myCardBenefitsURL();
-  if (!target) { openMyCardBenefitsHelp(); return; }
-  const popup = myCardBenefitsHandoff();
-  if (!popup) return;
-  const helpURL = new URL(MYCARD_BENEFITS_SETUP_DOC, location.origin).href;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1500);
-  try {
-    // The companion's health endpoint is deliberately reached without cookies,
-    // a referrer, request body, or any card/user value. no-cors lets a separate
-    // app prove reachability without asking it to loosen its CORS policy. This
-    // does not verify destination identity; signed identity pinning is a later gate.
-    await fetch(new URL("/api/v1/health", target.origin), {
-      mode: "no-cors", cache: "no-store", credentials: "omit",
-      referrerPolicy: "no-referrer", signal: controller.signal,
-    });
-    popup.location.replace(target.href);
-  } catch (e) {
-    toast("MyCard Benefits is unavailable; opening the local setup guide", true);
-    popup.location.replace(helpURL);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 function maskNum(n) {
   const digits = String(n || "").replace(/\s+/g, "");
   if (digits.length < 4) return "••••";
@@ -2451,10 +2367,8 @@ PAGES.cards = () => {
       </div></div>`;
   });
   return pageHead("Cards", `${activeN} active card(s) · annual fees ${fmtMoney(feesTotal)} · details stay in your local data file`,
-    `<button class="btn" onclick="addCard()">+ Add Card</button>
-     <button class="btn secondary" onclick="openMyCardBenefits()">MyCard Benefits companion ↗</button>
-     <button class="btn ghost" onclick="configureMyCardBenefits()">Companion setup</button>`) + `
-  <div class="page-note">ⓘ&nbsp;<div>Card numbers, CVV and PIN are <b>masked by default</b> — click <b>👁</b> on a card to reveal. Everything stays in your local data file; nothing is sent anywhere. The optional MyCard Benefits companion opens separately and receives no card or user data. Filter by bank, owner, type or status below.</div></div>
+    `<button class="btn" onclick="addCard()">+ Add Card</button>`) + `
+  <div class="page-note">ⓘ&nbsp;<div>Card numbers, CVV and PIN are <b>masked by default</b> — click <b>👁</b> on a card to reveal. Everything stays in your local data file. Filter by bank, owner, type or status below.</div></div>
   <div class="filter-bar">
     <select onchange="cardFilter.bank=this.value;render()">
       <option value="">All banks</option>${banks.map(b => `<option value="${esc(b)}"${cardFilter.bank === b ? " selected" : ""}>${esc(b)}</option>`).join("")}

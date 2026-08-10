@@ -10,11 +10,6 @@ uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **Optional MyCard Benefits companion** — the existing Cards page now has a
-  separate launcher and accessible setup dialog. The configured origin stays in
-  browser-local storage, no card or finance data is sent, and a bundled guide
-  opens when the companion is absent. The URL policy allows HTTP only on
-  loopback or literal Tailscale IPv4 addresses and requires HTTPS elsewhere.
 - **Live Investments dashboard** (`/invest`, 2026-07-16) — consolidates personal holdings across
   brokers: Zerodha Kite (multiple accounts), Upstox, Coin mutual funds, Wint Wealth
   bonds (multiple accounts), and smallcase into one view. Supports broker OAuth sync,

@@ -33,7 +33,7 @@ A change is not "done" until **both** are updated:
 
 # or individually:
 python -m unittest discover -s tests -p "test_*.py"
-node --test tests/math.test.js tests/sample.test.js tests/companion-url.test.js
+node --test tests/math.test.js tests/sample.test.js
 ```
 
 CI runs the full suite on Linux and Windows (Python 3.10 & 3.12). Please make sure it's green

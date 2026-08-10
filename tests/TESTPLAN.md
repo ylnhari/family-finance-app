@@ -7,14 +7,15 @@ Regression suite. Run after **every** change; if it's green, core behaviour is i
 ```
 
 No frameworks, no installs. Pure math runs under Node's built-in runner; server/API/CLI
-under Python's `unittest`. **Total: 215 cases** (168 Python + 47 Node), ~19s Python / ~0.3s Node
-— see "FINAL counts" at the bottom for the exact per-file breakdown from an actual run.
+under Python's `unittest`. **Total: 257 cases** (210 Python + 47 Node) — see "FINAL counts"
+at the bottom for the exact per-file breakdown from an actual run.
 
 ## Strategy (pyramid)
 
 ```
-        server + CLI HTTP/process (integration) ── 148 cases (test_server.py + test_docs.py + test_cli.py)
-      investlib business logic (unit, temp-dir isolated) ── 67 cases, test_investlib.py
+        server + CLI HTTP/process (integration) ── 101 cases (test_server.py + test_docs.py + test_cli.py)
+      investlib business logic (unit, temp-dir isolated) ── 75 cases, test_investlib.py
+   port resolver + zero-install guards (regression) ── 21 cases (test_portlib.py + test_no_extras.py)
    pure math + gemini logic (unit) ── 46 cases, fast, no I/O
        sample-data integrity (e2e-ish) ── 14 cases, real calcs over demo file
 ```
@@ -43,10 +44,11 @@ and math regressions.
 | Gemini price parse | unit | `test_gemini.py` | commas, decimals, null word, extract-from-noise |
 | Gemini model fallback | unit | `test_gemini.py` | preference order, extras appended, empty→full list |
 | Sample-data integrity | e2e | `sample.test.js` | every section present, all earners/loans price out, prepayment saves interest, goals/cards/expenses/ledgers/gold cover all variants |
+| Port resolution | unit | `test_portlib.py` | explicit > environment > registry > default, invalid/conflicting values rejected |
+| Zero-install import guard | integration | `test_no_extras.py` | every app module imports with optional live-sync extras forced absent |
 | GET/PUT persistence | integration | `test_server.py` | roundtrip, full-document sections preserved |
 | Concurrent writes (regression) | integration | `test_server.py` | 20 parallel PUTs, no `Errno 13`, file stays valid (the save-lock fix) |
 | Static serving + shared theme | integration | `test_server.py` | index.html, finance-math.js, theme.js wired into both `/` and `/invest` (D11: one `ffa_theme` key) |
-| Optional MyCard companion | unit + integration | `companion-url.test.js`, `test_server.py`, `test_docs.py` | origin normalization, loopback/Tailscale/HTTPS boundary, launcher privacy, setup guide |
 | File lifecycle | integration | `test_server.py` | upload→list→download→delete, dedupe, empty rejected |
 | Security / errors | integration | `test_server.py` | path-traversal blocked, unknown route 404, invalid JSON 400, delete-missing 404 |
 | Backup / restore | integration | `test_server.py` | snapshot→restore roundtrip, missing backup 404 |
@@ -174,11 +176,11 @@ Every new feature ships with **both** test coverage and demo data:
 
 A change is not "done" until `./test.sh` is green AND the feature shows up in the demo dataset.
 
-## FINAL counts (from an actual run — JOB-4, wave 2)
+## FINAL counts (from an actual run — 2026-08-10)
 
 ```
 python -m unittest discover -s tests -p "test_*.py"
-  Ran 168 tests ... OK
+  Ran 210 tests ... OK
 
 node --test tests/math.test.js tests/sample.test.js
   tests 47, pass 47, fail 0
@@ -188,27 +190,21 @@ Python breakdown (`python -m unittest tests.<module> -v`):
 
 | File | Cases | Notes |
 |---|---:|---|
-| `test_cli.py` | 11 | NEW (JOB-4) — `invest_cli.py` import/wint/ipo subcommands |
-| `test_docs.py` | 8 | JOB-3 — `/docs/*.md` static route |
-| `test_gemini.py` | 13 | unchanged |
-| `test_investlib.py` | 67 | JOB-1 — investlib business logic incl. D1–D6 additions |
-| `test_server.py` | 69 | 51 pre-existing (JOB-1) + 18 NEW (JOB-4: `InvestTokensHttpTests` ×3, `OAuthAndSyncTests` ×15) |
-| **Python total** | **168** | |
+| `test_cli.py` | 11 | `invest_cli.py` import/wint/ipo subcommands |
+| `test_docs.py` | 14 | `/docs/*.md` static route |
+| `test_gemini.py` | 13 | Gemini parsing and model fallback |
+| `test_investlib.py` | 75 | investlib business logic and market-calendar behavior |
+| `test_no_extras.py` | 1 | optional live-sync extras forced absent |
+| `test_portlib.py` | 20 | shared port-resolution contract |
+| `test_server.py` | 76 | finance and investments HTTP behavior |
+| **Python total** | **210** | |
 
 Node breakdown: `math.test.js` 33 + `sample.test.js` 14 = **47**.
 
-**Grand total: 215 cases**, all green. No test in the suite touches real `data/`,
+**Grand total: 257 cases**, all green. No test in the suite touches real `data/`,
 `imports/`, `.env`, or a live broker/NSE network — every network-shaped call is mocked
 (`investlib.brokers` functions, `requests`) or, for OAuth/sync HTTP tests specifically,
 exercised against an **in-process** server boot (`test_server.py::_boot_inprocess_server`)
 so `unittest.mock.patch.object` can actually intercept the call — subprocess-booted
 servers (used everywhere else in `test_server.py`) can't be mocked from the parent test
 process.
-
-## Companion checkpoint — 2026-08-07
-
-The dated JOB-4 snapshot above is retained as historical evidence. After the
-optional MyCard Benefits companion was added, a complete run reported 207
-Python tests and 51 Node tests (33 math + 14 sample + 4 companion policy), for
-258 passing cases. The companion cases are now part of both normal test
-runners, not a separate optional command.

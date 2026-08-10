@@ -34,7 +34,6 @@ public/
                        #   esc() — escape every dynamic string (see rule 7)
   finance-math.js     # PURE money math (EMI, amortization, loan prepayment, income totals,
                        #   gold gain, validation). No DOM/DB — require()-able + unit-tested
-  companion-url.js    # PURE optional-companion origin policy; browser + Node compatible
   app.js              # UI + DB orchestration; delegates calc to finance-math.js
   theme.js            # ONE theme + hide-values preference shared by index.html and
                        #   invest.html (single `ffa_theme` key, cross-tab/iframe sync).
@@ -144,13 +143,11 @@ Two stdlib suites, no installs. See `tests/TESTPLAN.md` for the full plan.
 ```bash
 ./test.sh            # everything (Windows: test.bat)
 python -m unittest discover -s tests -p "test_*.py"   # server, persistence, gemini parse logic
-node --test tests/math.test.js tests/sample.test.js tests/companion-url.test.js
-                                                    # math + sample data + companion URL policy
+node --test tests/math.test.js tests/sample.test.js
+                                                    # math + sample data
 ```
 - **`tests/math.test.js`** — pure calcs from `finance-math.js` (EMI, amortization, prepayment, income totals, gold gain, validation).
 - **`tests/sample.test.js`** — runs real calcs over `samples/demo-finances.json`; guards both data drift and math regressions.
-- **`tests/companion-url.test.js`** — validates the optional companion's
-  loopback/Tailscale/HTTPS origin policy without network access.
 - **`tests/test_server.py`** — boots a real server on a temp dir; GET/PUT, **concurrent-write lock**, file lifecycle, path-traversal, backup/restore, `--demo` isolation, blank-slate + account CRUD, broker OAuth login/callback and sync (mocked — never live), AI graceful-degrade (no quota burn).
 - **`tests/test_gemini.py`** — Gemini JSON-fence / price-text parsing + model fallback ordering (no network).
 - **`tests/test_investlib.py`** — investlib units (portfolio/bridge/analysis/ipo/wint/store) on a temp data dir with a fake account registry.
