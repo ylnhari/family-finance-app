@@ -18,6 +18,7 @@ import os
 import stat
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -299,10 +300,13 @@ def _validate_card(card: Any, seen_ids: set[str]) -> dict[str, Any]:
         raise ExportRejected("card network is unsupported")
     expiry = normalized.get("expiry")
     if expiry:
-        if len(expiry) != 10 or expiry[4] != "-" or expiry[7] != "-" or not expiry.replace("-", "").isdigit():
+        if len(expiry) != 10 or expiry[4] != "-" or expiry[7] != "-":
             raise ExportRejected("card expiry is invalid")
-        year, month, day = expiry.split("-")
-        if not 1900 <= int(year) <= 9999 or not 1 <= int(month) <= 12 or day != "01":
+        try:
+            parsed_expiry = date.fromisoformat(expiry)
+        except ValueError as exc:
+            raise ExportRejected("card expiry is invalid") from exc
+        if not 1900 <= parsed_expiry.year <= 9999:
             raise ExportRejected("card expiry is invalid")
     return normalized
 

@@ -12,7 +12,7 @@ from unittest import mock
 import mycard_export
 
 
-def synthetic_source(*, extra_card_field=False, network="VISA", status=""):
+def synthetic_source(*, extra_card_field=False, network="VISA", status="", expiry="2030-05-01"):
     card = {
         "id": "synthetic-card-01",
         "name": "SYNTHETIC-ONLY Card",
@@ -22,7 +22,7 @@ def synthetic_source(*, extra_card_field=False, network="VISA", status=""):
         "variant": network,
         "variantSubType": "SYNTHETIC-ONLY subtype",
         "number": "SYNTHETIC-ONLY-PAN",
-        "expiry": "2030-05-01",
+        "expiry": expiry,
         "cvv": "SYNTHETIC-ONLY-CVV",
         "pin": "SYNTHETIC-ONLY-PIN",
         "fees": 0,
@@ -71,6 +71,15 @@ class MyCardExportTests(unittest.TestCase):
         for kwargs in ({"network": "Priority Pass"}, {"status": "retired"}):
             with self.subTest(kwargs=kwargs), self.assertRaises(mycard_export.ExportRejected):
                 mycard_export.build_card_only_export(json.dumps(synthetic_source(**kwargs)))
+
+    def test_non_first_day_iso_expiry_is_preserved(self):
+        payload = mycard_export.build_card_only_export(json.dumps(synthetic_source(expiry="2030-05-19")))
+        self.assertEqual(payload["cards"][0]["expiry"], "2030-05-19")
+
+    def test_invalid_or_non_iso_expiry_is_rejected(self):
+        for expiry in ("2030-02-30", "05/2030", "2030-05-1", "2030-05-19T00:00:00"):
+            with self.subTest(expiry=expiry), self.assertRaises(mycard_export.ExportRejected):
+                mycard_export.build_card_only_export(json.dumps(synthetic_source(expiry=expiry)))
 
     def test_atomic_cli_writes_new_file_and_never_prints_card_values(self):
         with tempfile.TemporaryDirectory(prefix="ffa-mycard-export-") as tmp:
