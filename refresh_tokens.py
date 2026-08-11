@@ -12,7 +12,6 @@ No portfolio figures ever leave the machine: the push names only which
 account needs attention, never a holding or value (same rule as daily_brief.py).
 """
 
-import os
 import sys
 
 try:
@@ -25,9 +24,9 @@ from investlib import brokers
 
 
 def _push(title: str, message: str) -> None:
-    topic = os.environ.get("NTFY_TOPIC")
+    topic = config.notification_topic()
     if not topic:
-        print(f"NTFY_TOPIC not set; would push — {title}: {message}")
+        print(f"INVESTMENTS_NTFY_TOPIC not set; would push — {title}: {message}")
         return
     if requests is None:
         print(f"requests not installed (pip install -r requirements-invest.txt); "

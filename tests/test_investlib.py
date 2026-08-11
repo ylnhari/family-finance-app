@@ -225,6 +225,58 @@ class TestBridge(TempDataMixin):
         self.assertIn(".bak backup may exist", str(ctx.exception))
 
 
+class TestMarketCalendar(unittest.TestCase):
+    def test_regular_nse_ipo_bidding_days(self):
+        from datetime import date
+        from investlib import market_calendar
+
+        self.assertEqual(market_calendar.market_status(date(2026, 8, 8)), "closed")
+        self.assertEqual(market_calendar.market_status(date(2026, 8, 9)), "closed")
+        self.assertEqual(market_calendar.market_status(date(2026, 9, 14)), "closed")
+        self.assertEqual(market_calendar.market_status(date(2026, 8, 10)), "open")
+        self.assertTrue(market_calendar.is_ipo_bidding_day(date(2026, 8, 10)))
+        self.assertFalse(market_calendar.is_ipo_bidding_day(date(2026, 11, 8)))
+
+    def test_calendar_unknown_year_fails_closed(self):
+        from datetime import date
+        from investlib import market_calendar
+
+        self.assertEqual(market_calendar.market_status(date(2027, 1, 4)), "unknown")
+        self.assertFalse(market_calendar.is_ipo_bidding_day(date(2027, 1, 4)))
+
+
+class TestDailyBriefMarketDay(unittest.TestCase):
+    def test_closed_day_skips_refresh_and_reminder_lookup(self):
+        from datetime import date
+        from unittest import mock
+        import daily_brief
+
+        with mock.patch.object(daily_brief.ipo_fetch, "refresh_from_upstox") as upstox, \
+                mock.patch.object(daily_brief.ipo_fetch, "refresh") as nse, \
+                mock.patch.object(daily_brief.ipo, "reminders") as reminders:
+            self.assertIsNone(daily_brief.build_message(date(2026, 8, 9)))
+        upstox.assert_not_called()
+        nse.assert_not_called()
+        reminders.assert_not_called()
+
+    def test_open_day_keeps_apply_alert_behavior(self):
+        from datetime import date
+        from unittest import mock
+        import daily_brief
+
+        item = {"call": "APPLY", "name": "Demo IPO", "days_to_close": 0,
+                "reason": "strong demand"}
+        with mock.patch.object(daily_brief.ipo_fetch, "refresh_from_upstox",
+                               return_value={"count": 0}) as upstox, \
+                mock.patch.object(daily_brief.ipo_fetch, "refresh") as nse, \
+                mock.patch.object(daily_brief.ipo, "reminders", return_value=[item]) as reminders:
+            message = daily_brief.build_message(date(2026, 8, 10))
+        self.assertIn("[APPLY] Demo IPO closes TODAY", message)
+        upstox.assert_called_once_with()
+        nse.assert_called_once_with()
+        reminders.assert_called_once_with(today=date(2026, 8, 10))
+
+
 class TestIpoRecommendation(TempDataMixin):
     def test_thresholds(self):
         from investlib import ipo
@@ -247,6 +299,15 @@ class TestIpoRecommendation(TempDataMixin):
         self.assertEqual(len(tracked), 1)
         self.assertEqual(tracked[0]["sub_total"], 15.0)
         self.assertEqual(len(ipo.reminders()), 1)
+
+    def test_reminders_keep_calendar_day_semantics_for_dashboard_callers(self):
+        from datetime import date
+        from investlib import ipo
+
+        ipo.upsert("Acme IPO", "2026-08-10", sub_total=15.0)
+        due = ipo.reminders(today=date(2026, 8, 9))
+        self.assertEqual(len(due), 1)
+        self.assertEqual(due[0]["days_to_close"], 1)
 
     def test_cross_source_names_fold_to_one_row(self):
         from investlib import ipo
@@ -1189,15 +1250,60 @@ class TestMissingExtras(unittest.TestCase):
         from unittest import mock
         import daily_brief
         with mock.patch.object(daily_brief, "requests", None), \
-                mock.patch.dict("os.environ", {"NTFY_TOPIC": "topic"}):
+                mock.patch.dict("os.environ", {"INVESTMENTS_NTFY_TOPIC": "topic"}):
             daily_brief.push("hello")  # must not raise
 
     def test_refresh_tokens_push_without_requests_prints_only(self):
         from unittest import mock
         import refresh_tokens
         with mock.patch.object(refresh_tokens, "requests", None), \
-                mock.patch.dict("os.environ", {"NTFY_TOPIC": "topic"}):
+                mock.patch.dict("os.environ", {"INVESTMENTS_NTFY_TOPIC": "topic"}):
             refresh_tokens._push("title", "msg")  # must not raise
+
+    def test_investments_topic_ignores_generic_topic(self):
+        from unittest import mock
+        import config
+
+        with mock.patch.dict("os.environ", {
+            "NTFY_TOPIC": "generic-topic",
+            "INVESTMENTS_NTFY_TOPIC": "investments-topic",
+        }, clear=False):
+            self.assertEqual(config.notification_topic(), "investments-topic")
+
+        with mock.patch.dict("os.environ", {"NTFY_TOPIC": "generic-topic"}, clear=True):
+            self.assertEqual(config.notification_topic(), "")
+
+    def test_daily_brief_push_targets_investments_topic(self):
+        from unittest import mock
+        import daily_brief
+
+        fake_requests = mock.Mock()
+        with mock.patch.object(daily_brief, "requests", fake_requests), \
+                mock.patch.dict("os.environ", {
+                    "NTFY_TOPIC": "generic-topic",
+                    "INVESTMENTS_NTFY_TOPIC": "investments-topic",
+                }, clear=False):
+            daily_brief.push("hello")
+
+        fake_requests.post.assert_called_once()
+        self.assertEqual(fake_requests.post.call_args.args[0],
+                         "https://ntfy.sh/investments-topic")
+
+    def test_refresh_tokens_push_targets_investments_topic(self):
+        from unittest import mock
+        import refresh_tokens
+
+        fake_requests = mock.Mock()
+        with mock.patch.object(refresh_tokens, "requests", fake_requests), \
+                mock.patch.dict("os.environ", {
+                    "NTFY_TOPIC": "generic-topic",
+                    "INVESTMENTS_NTFY_TOPIC": "investments-topic",
+                }, clear=False):
+            refresh_tokens._push("title", "message")
+
+        fake_requests.post.assert_called_once()
+        self.assertEqual(fake_requests.post.call_args.args[0],
+                         "https://ntfy.sh/investments-topic")
 
 
 if __name__ == "__main__":

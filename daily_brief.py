@@ -9,11 +9,10 @@ multiples, apply/skip call); the Wint reminder carries only "it's been N
 days" — never a holdings value. Portfolio holdings and signals never leave
 the machine; those live on the dashboard at the /invest page of the dashboard.
 
-ntfy: subscribe once on the phone to https://ntfy.sh/<NTFY_TOPIC> (app or
+ntfy: subscribe once on the phone to https://ntfy.sh/<INVESTMENTS_NTFY_TOPIC> (app or
 browser). The topic name is effectively the password — keep it random.
 """
 
-import os
 import sys
 from datetime import date
 
@@ -23,12 +22,16 @@ except ImportError:
     requests = None
 
 import config  # noqa: F401  (loads .env)
-from investlib import analysis, ipo, ipo_fetch, store
+from investlib import analysis, ipo, ipo_fetch, market_calendar, store
 
 WINT_REMIND_EVERY_DAYS = 7  # don't re-nag more than once a week even if still stale
 
 
-def build_message() -> str | None:
+def build_message(today: date | None = None) -> str | None:
+    today = today or date.today()
+    if not market_calendar.is_ipo_bidding_day(today):
+        return None
+
     # Prefer the Upstox IPO API (reliable, carries symbols); fall back to NSE
     # scraping if it yields nothing (e.g. token/Static-IP not set up).
     try:
@@ -44,7 +47,7 @@ def build_message() -> str | None:
             print(f"NSE refresh failed: {e2}", file=sys.stderr)
 
     lines = []
-    for item in ipo.reminders():
+    for item in ipo.reminders(today=today):
         if item["call"] in ("APPLY", "CAUTION"):
             when = "closes TODAY" if item["days_to_close"] == 0 else f"closes in {item['days_to_close']}d"
             lines.append(f"[{item['call']}] {item['name']} {when} — {item['reason']}")
@@ -52,9 +55,9 @@ def build_message() -> str | None:
 
 
 def push(message: str) -> None:
-    topic = os.environ.get("NTFY_TOPIC")
+    topic = config.notification_topic()
     if not topic:
-        print("NTFY_TOPIC not set; printing only")
+        print("INVESTMENTS_NTFY_TOPIC not set; printing only")
         return
     if requests is None:
         print("requests not installed (pip install -r requirements-invest.txt); printing only")
@@ -76,9 +79,9 @@ def build_allotment_reminder() -> str | None:
 
 
 def push_allotment_reminder(message: str) -> None:
-    topic = os.environ.get("NTFY_TOPIC")
+    topic = config.notification_topic()
     if not topic:
-        print("NTFY_TOPIC not set; printing only")
+        print("INVESTMENTS_NTFY_TOPIC not set; printing only")
         return
     if requests is None:
         print("requests not installed (pip install -r requirements-invest.txt); printing only")
@@ -112,9 +115,9 @@ def build_wint_reminder() -> str | None:
 
 
 def push_wint_reminder(message: str) -> None:
-    topic = os.environ.get("NTFY_TOPIC")
+    topic = config.notification_topic()
     if not topic:
-        print("NTFY_TOPIC not set; printing only")
+        print("INVESTMENTS_NTFY_TOPIC not set; printing only")
         return
     if requests is None:
         print("requests not installed (pip install -r requirements-invest.txt); printing only")

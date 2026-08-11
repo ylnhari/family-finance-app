@@ -24,6 +24,7 @@ IMPORTS_DIR = REPO_ROOT / "imports"
 HOST = "127.0.0.1"  # never widen; remote access goes through rover/tailscale
 
 RUNTIME_PORT = None  # set by server.py once the real bound port is known
+NOTIFICATION_TOPIC_ENV = "INVESTMENTS_NTFY_TOPIC"
 
 
 def _load_env() -> None:
@@ -45,6 +46,11 @@ def _load_env() -> None:
 
 
 _load_env()
+
+
+def notification_topic() -> str:
+    """Return the investments-only ntfy topic, never a shared generic topic."""
+    return os.environ.get(NOTIFICATION_TOPIC_ENV, "").strip()
 
 
 def port() -> int:

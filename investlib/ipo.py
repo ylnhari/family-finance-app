@@ -128,9 +128,9 @@ def recommend(ipo: dict) -> dict:
     return {"call": call, "reason": reason}
 
 
-def tracked(include_closed: bool = False) -> list:
+def tracked(include_closed: bool = False, today: date | None = None) -> list:
     """All tracked IPOs with recommendation and days-to-close attached."""
-    today = date.today()
+    today = today or date.today()
     out = []
     for ipo in store.load("ipos", default=[]):
         close = datetime.strptime(ipo["close_date"], "%Y-%m-%d").date()
@@ -145,9 +145,9 @@ def tracked(include_closed: bool = False) -> list:
     return out
 
 
-def reminders() -> list:
+def reminders(today: date | None = None) -> list:
     """IPOs closing within CLOSING_SOON_DAYS — the ones needing a decision now."""
-    return [i for i in tracked() if i["closing_soon"]]
+    return [i for i in tracked(today=today) if i["closing_soon"]]
 
 
 # ---- allotment tracking (applied IPOs → holdings) --------------------------

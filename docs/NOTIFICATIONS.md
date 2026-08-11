@@ -11,6 +11,13 @@ reasonable default; adjust to taste):
 - Refreshes IPO subscription numbers (tries the Upstox IPO API first, falls back to NSE
   scraping), then pushes an **IPO alert** listing any tracked IPO with an APPLY or CAUTION
   call that's still open, with days-to-close.
+- IPO APPLY/CAUTION alerts are generated only on regular NSE Capital Market bidding days. The
+  daily task may still run on Saturdays, Sundays, or exchange holidays, but the IPO path exits
+  before refreshing IPO data or sending an IPO alert; separate allotment and Wint reminders keep
+  their existing behavior. The next open-day run checks IPOs again. The local calendar is kept
+  in `investlib/market_calendar.py` and must be refreshed annually with official NSE holiday
+  lists and amendments. This gate is for live bidding reminders; it does not change the
+  dashboard's calendar-day countdown or imply that this app places an order.
 - Pushes a separate **allotment-day reminder** for any IPO you applied to, on the day
   allotment finalizes.
 - Pushes a separate **Wint Wealth staleness reminder** (at most once every 7 days per
@@ -20,7 +27,7 @@ reasonable default; adjust to taste):
   only public NSE/Upstox data (names, subscription multiples, the apply/skip call); the
   Wint reminder carries only "it's been N days," never an amount. All real numbers stay
   on the local dashboard at `/invest`.
-- If `NTFY_TOPIC` isn't set, it just prints what it would have sent and exits — safe to
+- If `INVESTMENTS_NTFY_TOPIC` isn't set, it just prints what it would have sent and exits — safe to
   run with no config at all.
 
 **`refresh_tokens.py`** — meant to run once, early each morning, after both brokers'
@@ -54,15 +61,16 @@ python refresh_tokens.py
    - Or subscribe in a browser at `https://ntfy.sh/<your-topic>` — works, but a
      browser tab has to stay open to receive live pushes; the phone app is the practical
      choice for a "silent until something's actionable" daily brief.
-3. **Set the env var.** In `.env`:
+3. **Set the investments-only env var.** In `.env`:
    ```
-   NTFY_TOPIC=your-hard-to-guess-topic-here
+   INVESTMENTS_NTFY_TOPIC=your-hard-to-guess-topic-here
    ```
+   Do not use the generic `NTFY_TOPIC`; another automation may own that variable.
 4. Restart the server (or just run the scripts directly — they read `.env` themselves via
    `config.py`, independent of the running server).
 
-That's it — no API key, no account, nothing else to configure. Leave `NTFY_TOPIC` blank
-to keep both scripts print-only (they print a `NTFY_TOPIC not set; printing only` line
+That's it — no API key, no account, nothing else to configure. Leave `INVESTMENTS_NTFY_TOPIC` blank
+to keep both scripts print-only (they print an `INVESTMENTS_NTFY_TOPIC not set; printing only` line
 and skip the push).
 
 ## Missing the optional extras?
@@ -70,7 +78,7 @@ and skip the push).
 Both scripts also import `requests` optionally (`requirements-invest.txt`). If it isn't
 installed, they don't crash — they print a `requests not installed (pip install -r
 requirements-invest.txt); printing only` line and skip the push, same as leaving
-`NTFY_TOPIC` unset. Install the extras (see `docs/BROKER-SETUP.md` → "Before you start")
+`INVESTMENTS_NTFY_TOPIC` unset. Install the extras (see `docs/BROKER-SETUP.md` → "Before you start")
 if you want the actual phone push, not just the console line.
 
 ## The TOTP secret — where it comes from, and the tradeoff
@@ -166,7 +174,7 @@ Notes:
 ## Safe to try with zero configuration
 
 Both scripts check what's configured before doing anything broker-specific: with no
-`NTFY_TOPIC`, they print instead of pushing; with no broker credentials configured for an
+`INVESTMENTS_NTFY_TOPIC`, they print instead of pushing; with no broker credentials configured for an
 account, `refresh_tokens.py` just skips it. You can schedule both scripts immediately
 after cloning, before setting up any broker or notification config, to see exactly what
 they'd do — nothing will error out from missing optional config.

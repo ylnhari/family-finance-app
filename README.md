@@ -162,7 +162,8 @@ ships blank in the tracked example, and the app runs fine with none of them set.
   the IPO tracker, and parse Wint Wealth xlsx statements from the command line, e.g.
   `python invest_cli.py import kite-1 imports/holdings.csv`.
 - `daily_brief.py` — pushes an IPO-alert / Wint-refresh-reminder summary (never portfolio
-  values) to your phone via [ntfy.sh](https://ntfy.sh) (needs `NTFY_TOPIC` in `.env`). Run
+  values) to your phone via [ntfy.sh](https://ntfy.sh) (needs the dedicated
+  `INVESTMENTS_NTFY_TOPIC` in `.env`). Run
   it directly with `python daily_brief.py`, or schedule it — see
   [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) for what it sends, ntfy.sh setup, and
   both Windows Task Scheduler and cron examples.

@@ -99,7 +99,7 @@ class DocsRouteTests(unittest.TestCase):
         text = body.decode("utf-8")
         self.assertIn("<!doctype html>", text.lower())
         self.assertIn("ntfy.sh", text)
-        self.assertIn("NTFY_TOPIC", text)
+        self.assertIn("INVESTMENTS_NTFY_TOPIC", text)
         self.assertIn("daily_brief.py", text)
         self.assertIn("refresh_tokens.py", text)
 
