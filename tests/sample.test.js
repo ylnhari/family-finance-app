@@ -6,7 +6,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { loanState, incomeTotalsForYear, computeGoldGain, maturityInfo,
-        num, ledgerNet, ledgerCashback, ledgerTotals } = require("../public/finance-math.js");
+        num, expenseTotal, externalHelpTotal,
+        ledgerNet, ledgerCashback, ledgerTotals } = require("../public/finance-math.js");
 
 const SAMPLE = path.join(__dirname, "..", "samples", "demo-finances.json");
 const DB = JSON.parse(fs.readFileSync(SAMPLE, "utf8"));
@@ -114,6 +115,17 @@ test("sample: expense sections exercise all three dimension modes", () => {
   for (const d of ["location", "person", "none"]) {
     assert.ok(dims.has(d), `expense dimension "${d}" demonstrated`);
   }
+});
+
+test("sample: outside help is present and excluded from expenses", () => {
+  const meta = DB.settings.predefined.expenseGroupMeta || {};
+  const help = externalHelpTotal(DB.expenses, meta);
+  const expenses = expenseTotal(DB.expenses, meta);
+  const raw = DB.expenses.reduce((sum, e) => sum + num(e.amount), 0);
+  assert.ok(help > 0, "demo includes potential outside help");
+  assert.ok(DB.expenses.some(e => /external help|family support/i.test(e.group || "")));
+  assert.equal(expenses + help, raw, "outside help is not counted as expense");
+  assert.equal(meta["External Help / Family Support"].kind, "externalHelp");
 });
 
 test("sample: monthly investments cover IN HAND / GROSS / CTC sources", () => {

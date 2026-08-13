@@ -28,7 +28,8 @@
         "Transport",
         "Utilities",
         "Kids",
-        "Lifestyle"
+        "Lifestyle",
+        "External Help / Family Support"
       ],
       "expenseCategories": {
         "Housing": [
@@ -62,6 +63,9 @@
           "OTT Subscriptions",
           "Gym",
           "Shopping"
+        ],
+        "External Help / Family Support": [
+          "Family support"
         ]
       },
       "locations": [
@@ -168,6 +172,11 @@
         },
         "Lifestyle": {
           "dim": "person",
+          "created": true
+        },
+        "External Help / Family Support": {
+          "dim": "none",
+          "kind": "externalHelp",
           "created": true
         }
       }
@@ -565,6 +574,15 @@
       "person": "Priya",
       "amount": 2500,
       "notes": ""
+    },
+    {
+      "id": "exp15",
+      "group": "External Help / Family Support",
+      "category": "Family support",
+      "location": "",
+      "person": "",
+      "amount": 15000,
+      "notes": "Potential monthly help from outside the household"
     }
   ],
   "monthlyInvestments": [

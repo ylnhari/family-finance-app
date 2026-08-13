@@ -6,6 +6,49 @@
 /* numeric coercion: strips commas/spaces, non-numbers -> 0 */
 const num = v => { const n = parseFloat(String(v).replace(/[,\s]/g, "")); return isFinite(n) ? n : 0; };
 
+/* Expense sections can also record support that comes from outside the
+   household.  Keep the legacy labels recognized while allowing the UI to
+   explicitly mark any section as external help.  Such rows are displayed as
+   potential support, never as an expense or cash outflow. */
+const EXTERNAL_HELP_GROUP_RE = /\b(?:external\s+help|family\s+support|outside\s+help|help\s+from\s+outside|external\s+support|family\s+help)\b/i;
+function isExternalHelpGroup(group) {
+  return EXTERNAL_HELP_GROUP_RE.test(String(group || "").trim());
+}
+function isExternalHelpEntry(entry, groupMeta) {
+  if (!entry) return false;
+  const group = String(entry.group || "").trim();
+  return Boolean(groupMeta && groupMeta[group] && groupMeta[group].kind === "externalHelp")
+    || isExternalHelpGroup(group);
+}
+function externalHelpTotal(entries, groupMeta) {
+  return (entries || []).reduce((sum, entry) =>
+    sum + (isExternalHelpEntry(entry, groupMeta) ? num(entry.amount) : 0), 0);
+}
+function expenseTotal(entries, groupMeta) {
+  return (entries || []).reduce((sum, entry) =>
+    sum + (isExternalHelpEntry(entry, groupMeta) ? 0 : num(entry.amount)), 0);
+}
+/* Compare the same monthly cashflow after treating outside help as available
+   support.  The base expense/outflow values remain unchanged; only the
+   available income and resulting savings/surplus change. */
+function withExternalHelpSummary({ inHand = 0, expenses = 0, totalOutflow = 0,
+  outsideHelp = 0, investments = 0 } = {}) {
+  const availableIncome = num(inHand) + num(outsideHelp);
+  const outflow = num(totalOutflow);
+  const surplus = availableIncome - outflow;
+  const savings = num(investments) + surplus;
+  return {
+    expenses: num(expenses),
+    outsideHelp: num(outsideHelp),
+    inHand: num(inHand),
+    availableIncome,
+    outflow,
+    surplus,
+    savings,
+    savingsRate: availableIncome > 0 ? savings / availableIncome : 0,
+  };
+}
+
 /* EMI for principal P, annual rate (e.g. 0.0915), n months */
 function calcEMI(P, annualRate, n) {
   if (!P || !n) return 0;
@@ -254,6 +297,8 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     num, calcEMI, outstandingFromEMI, amortSchedule, monthsSince, loanState,
     validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo,
+    isExternalHelpGroup, isExternalHelpEntry, externalHelpTotal, expenseTotal,
+    withExternalHelpSummary,
     ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
   };
 }

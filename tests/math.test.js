@@ -5,6 +5,8 @@ const assert = require("node:assert/strict");
 const {
   num, calcEMI, outstandingFromEMI, amortSchedule, loanState,
   validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo,
+  isExternalHelpGroup, isExternalHelpEntry, externalHelpTotal, expenseTotal,
+  withExternalHelpSummary,
   ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
 } = require("../public/finance-math.js");
 
@@ -227,6 +229,45 @@ test("incomeTotalsForYear: empty / missing year is all zeros", () => {
   assert.equal(t.inHand, 0);
   assert.equal(t.variablePay, 0);
   assert.equal(t.totalBonus, 0);
+});
+
+/* ---------------- external help vs expenses ---------------- */
+
+test("external help is shown separately and excluded from expense totals", () => {
+  const rows = [
+    { group: "Housing", amount: 42000 },
+    { group: "External Help / Family Support", amount: 15000 },
+    { group: "Parents", amount: 5000 },
+  ];
+  const meta = { Parents: { kind: "externalHelp" } };
+
+  assert.equal(externalHelpTotal(rows, meta), 20000);
+  assert.equal(expenseTotal(rows, meta), 42000);
+  assert.equal(externalHelpTotal(rows, {}), 15000);
+  assert.equal(expenseTotal(rows, {}), 47000);
+  assert.equal(isExternalHelpGroup("help from outside"), true);
+  assert.equal(isExternalHelpGroup("Family Function"), false);
+  assert.equal(isExternalHelpEntry(rows[2], meta), true);
+});
+
+test("withExternalHelpSummary keeps outflow fixed and increases available savings", () => {
+  const summary = withExternalHelpSummary({
+    inHand: 100000,
+    expenses: 55000,
+    totalOutflow: 75000,
+    outsideHelp: 20000,
+    investments: 10000,
+  });
+  assert.deepEqual(summary, {
+    expenses: 55000,
+    outsideHelp: 20000,
+    inHand: 100000,
+    availableIncome: 120000,
+    outflow: 75000,
+    surplus: 45000,
+    savings: 55000,
+    savingsRate: 55 / 120,
+  });
 });
 
 /* ---------------- gold gain ---------------- */

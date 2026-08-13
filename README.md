@@ -85,7 +85,7 @@ Export / Import in Settings). To let someone else use the app, just give them th
 
 - **Dashboard** — net worth, asset allocation, monthly cashflow, loan progress, upcoming goals
 - **Income** — relational salary structure per family member: enter each component once, marked "Gross (counts in CTC)" or "CTC only"; **CTC = Gross + CTC-only items and In-Hand = Gross − Deductions are computed automatically** with input validation
-- **Expenses** — sections with predefined category & location dropdowns ("add new for reuse" or "custom for this entry"); each section can track location, person, or just category & amount
+- **Expenses** — sections with predefined category & location dropdowns ("add new for reuse" or "custom for this entry"); each section can track location, person, or just category & amount. Mark outside help / family support sections as **External help received** to show potential support separately without counting it as an expense or outflow.
 - **Monthly Investments** — SIPs, PF, NPS, gold schemes; tracks whether each comes from in-hand, gross or CTC
 - **Portfolio** — every holding with invested vs current value and returns, per owner, plus physical gold
 - **Loans**
