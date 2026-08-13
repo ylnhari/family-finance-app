@@ -579,6 +579,22 @@ function groupKind(g) {
 }
 function expenseGroupMeta() { return DB.settings.predefined.expenseGroupMeta || {}; }
 function outsideHelpTotal() { return externalHelpTotal(DB.expenses, expenseGroupMeta()); }
+function externalHelpComparisonCard(withHelp, details = "") {
+  const appliedNote = withHelp.appliedHelp > 0
+    ? `${fmtMoney(withHelp.appliedHelp)} applied to expenses`
+    : "no potential help applied";
+  return `<div class="panel external-help-comparison"><h2>With external help</h2>
+    <p class="small muted">Potential help covers expenses only. In-hand income stays unchanged; the figures below show the resulting monthly picture.</p>
+    <div class="grid comparison-grid">
+      <div class="kpi"><div class="label">Potential Help</div><div class="value pos">${fmtMoney(withHelp.outsideHelp)}</div><div class="delta muted">used for expenses only</div></div>
+      <div class="kpi"><div class="label">In-hand Income</div><div class="value">${fmtMoney(withHelp.inHand)}</div><div class="delta muted">unchanged</div></div>
+      <div class="kpi"><div class="label">Expenses After Help</div><div class="value">${fmtMoney(withHelp.expensesAfterHelp)}</div><div class="delta muted">${appliedNote}</div></div>
+      <div class="kpi"><div class="label">Outflow After Help</div><div class="value">${fmtMoney(withHelp.outflow)}</div><div class="delta muted">EMIs &amp; investments unchanged</div></div>
+      <div class="kpi"><div class="label">Savings / Surplus</div><div class="value ${withHelp.savings >= 0 ? "pos" : "neg"}">${fmtMoney(withHelp.savings)}</div><div class="delta muted">after covered expenses</div></div>
+      <div class="kpi"><div class="label">Savings Rate</div><div class="value ${withHelp.savingsRate >= 0 ? "pos" : "neg"}">${fmtPct(withHelp.savingsRate)}</div><div class="delta muted">of in-hand income</div></div>
+    </div>${details}
+  </div>`;
+}
 function totalExpenses() {        // recurring monthly outflow incl. investments & loan EMIs
   return expenseTotal(DB.expenses, expenseGroupMeta())
        + DB.monthlyInvestments.filter(i => (i.deductedFrom || "IN HAND") === "IN HAND").reduce((s, i) => s + num(i.amount), 0)
@@ -604,6 +620,7 @@ PAGES.dashboard = () => {
   const inHand = totalInHand();
   const pureExp = pureExpenses();
   const outsideHelp = outsideHelpTotal();
+  const groupMeta = expenseGroupMeta();
   const emiTotal = activeLoans().reduce((s, L) => s + loanState(L).emi, 0);
   const invInHand = DB.monthlyInvestments.filter(i => (i.deductedFrom || "IN HAND") === "IN HAND").reduce((s, i) => s + num(i.amount), 0);
   const outflow = pureExp + emiTotal + invInHand;
@@ -627,11 +644,7 @@ PAGES.dashboard = () => {
   const allocTotal = Math.max(inHand, outflow) || 1;
 
   // spend by section (expense groups, no EMI)
-  const byGroup = {};
-  DB.expenses.filter(e => !isExternalHelpEntry(e, expenseGroupMeta())).forEach(e => {
-    const k = e.group || "Other";
-    byGroup[k] = (byGroup[k] || 0) + num(e.amount);
-  });
+  const byGroup = expenseGroupTotals(DB.expenses, groupMeta);
   const groupItems = Object.entries(byGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
     .map(([label, value], ix) => ({ label, value, color: PALETTE[ix % PALETTE.length] }));
 
@@ -705,8 +718,6 @@ PAGES.dashboard = () => {
     <div class="kpi"><div class="label">Net Worth</div><div class="value ${net >= 0 ? "pos" : "neg"}">${fmtMoney(net)}</div>
       <div class="delta muted">${fmtMoney(assets)} assets − ${fmtMoney(liab)} debt</div></div>
     <div class="kpi"><div class="label">Monthly In-Hand</div><div class="value">${fmtMoney(inHand)}</div></div>
-    <div class="kpi"><div class="label">Potential Outside Help</div><div class="value pos">${fmtMoney(outsideHelp)}</div>
-      <div class="delta muted">available support · not an expense</div></div>
     <div class="kpi"><div class="label">Monthly Outflow</div><div class="value">${fmtMoney(outflow)}</div>
       <div class="delta muted">incl. EMIs &amp; investments</div></div>
     <div class="kpi"><div class="label">Monthly Surplus</div><div class="value ${surplus >= 0 ? "pos" : "neg"}">${fmtMoney(surplus)}</div>
@@ -721,20 +732,10 @@ PAGES.dashboard = () => {
       <div>${stackedBar(allocSegs, { total: allocTotal })}
         ${surplus < 0 ? `<p class="small neg mt">⚠ Outflow exceeds in-hand by ${fmtMoney(-surplus)}.</p>` : ""}</div>
       <div style="text-align:center">${gaugeArc(savingsRate, fmtPct(savingsRate), "of in-hand kept", gaugeColor)}
-        <div class="small muted" style="margin-top:4px">Investments + surplus vs in-hand income</div>
-        <div class="small pos" style="margin-top:8px"><b>${fmtMoney(outsideHelp)}</b> potential outside help · excluded from outflow</div></div>
+        <div class="small muted" style="margin-top:4px">Investments + surplus vs in-hand income</div></div>
     </div>
   </div>
-  <div class="panel external-help-comparison"><h2>With external help</h2>
-    <p class="small muted">The same monthly picture if potential outside help is available. Expenses and outflow stay the same; the support increases available income and savings.</p>
-    <div class="grid comparison-grid">
-      <div class="kpi"><div class="label">Expenses</div><div class="value">${fmtMoney(withHelp.expenses)}</div><div class="delta muted">unchanged</div></div>
-      <div class="kpi"><div class="label">Available Income</div><div class="value pos">${fmtMoney(withHelp.availableIncome)}</div><div class="delta muted">in-hand + outside help</div></div>
-      <div class="kpi"><div class="label">Total Outflow</div><div class="value">${fmtMoney(withHelp.outflow)}</div><div class="delta muted">unchanged</div></div>
-      <div class="kpi"><div class="label">Savings / Surplus</div><div class="value ${withHelp.savings >= 0 ? "pos" : "neg"}">${fmtMoney(withHelp.savings)}</div><div class="delta muted">including investments</div></div>
-      <div class="kpi"><div class="label">Savings Rate</div><div class="value ${withHelp.savingsRate >= 0 ? "pos" : "neg"}">${fmtPct(withHelp.savingsRate)}</div><div class="delta muted">of available income</div></div>
-    </div>
-  </div>
+  ${externalHelpComparisonCard(withHelp)}
   <div class="grid two-col">
     <div class="panel"><h2>Spend by Section</h2>${groupItems.length ? donutChart(groupItems) : '<div class="empty">No expenses yet</div>'}</div>
     <div class="panel"><h2>Monthly Investment Mix</h2>${investItems.length ? donutChart(investItems) : '<div class="empty">No investments yet</div>'}</div>
@@ -1301,6 +1302,7 @@ PAGES.expenses = () => {
   const groups = {};
   const helpGroups = {};
   const groupMeta = expenseGroupMeta();
+  const baseEntries = DB.expenses.filter(e => !isExternalHelpEntry(e, groupMeta));
   DB.expenses.forEach((e, i) => {
     const g = e.group || "Other";
     const target = isExternalHelpEntry(e, groupMeta) ? helpGroups : groups;
@@ -1330,16 +1332,12 @@ PAGES.expenses = () => {
     investments: invTotal,
   });
 
-  const byGroup = {};
-  DB.expenses.filter(e => !isExternalHelpEntry(e, groupMeta)).forEach(e => {
-    const g = e.group || "Other";
-    byGroup[g] = (byGroup[g] || 0) + num(e.amount);
-  });
+  const byGroup = expenseGroupTotals(DB.expenses, groupMeta);
   const groupItems = Object.entries(byGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
     .map(([label, value], ix) => ({ label, value, color: PALETTE[ix % PALETTE.length] }));
 
   const byCat = {};
-  DB.expenses.filter(e => !isExternalHelpEntry(e, groupMeta)).forEach(e => {
+  baseEntries.forEach(e => {
     const k = e.category || "Other";
     byCat[k] = (byCat[k] || 0) + num(e.amount);
   });
@@ -1348,7 +1346,7 @@ PAGES.expenses = () => {
   const topCat = catItems[0];
 
   const byPerson = {}; let shared = 0;
-  DB.expenses.filter(e => !isExternalHelpEntry(e, groupMeta)).forEach(e => {
+  baseEntries.forEach(e => {
     const amt = num(e.amount);
     if (groupDim(e.group) === "person" && e.person) byPerson[e.person] = (byPerson[e.person] || 0) + amt;
     else shared += amt;
@@ -1358,7 +1356,7 @@ PAGES.expenses = () => {
     .sort((a, b) => b.value - a.value);
 
   const byLoc = {};
-  DB.expenses.filter(e => !isExternalHelpEntry(e, groupMeta)).forEach(e => {
+  baseEntries.forEach(e => {
     if (groupDim(e.group) === "location" && e.location) byLoc[e.location] = (byLoc[e.location] || 0) + num(e.amount);
   });
   const locItems = Object.entries(byLoc).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
@@ -1378,7 +1376,7 @@ PAGES.expenses = () => {
 
   const sectionBreakdown = Object.entries(byGroup).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([g]) => {
     const cats = {};
-    DB.expenses.filter(e => !isExternalHelpEntry(e, groupMeta) && (e.group || "Other") === g)
+    baseEntries.filter(e => (e.group || "Other") === g)
       .forEach(e => { cats[e.category || "Other"] = (cats[e.category || "Other"] || 0) + num(e.amount); });
     const segs = Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([label, value], ix) => ({ label, value, color: PALETTE[ix % PALETTE.length] }));
     return `<div style="margin-bottom:18px">
@@ -1387,23 +1385,29 @@ PAGES.expenses = () => {
       ${stackedBar(segs, { total: byGroup[g] })}</div>`;
   }).join("");
 
-  const comparisonCard = `<div class="panel external-help-comparison"><h2>With external help</h2>
-    <p class="small muted">A simple comparison with potential outside help included in available income.</p>
-    <div class="grid comparison-grid">
-      <div class="kpi"><div class="label">Expenses</div><div class="value">${fmtMoney(withHelp.expenses)}</div><div class="delta muted">unchanged</div></div>
-      <div class="kpi"><div class="label">Available Income</div><div class="value pos">${fmtMoney(withHelp.availableIncome)}</div><div class="delta muted">in-hand + outside help</div></div>
-      <div class="kpi"><div class="label">Total Outflow</div><div class="value">${fmtMoney(withHelp.outflow)}</div><div class="delta muted">unchanged</div></div>
-      <div class="kpi"><div class="label">Savings / Surplus</div><div class="value ${withHelp.savings >= 0 ? "pos" : "neg"}">${fmtMoney(withHelp.savings)}</div><div class="delta muted">including investments</div></div>
-      <div class="kpi"><div class="label">Savings Rate</div><div class="value ${withHelp.savingsRate >= 0 ? "pos" : "neg"}">${fmtPct(withHelp.savingsRate)}</div><div class="delta muted">of available income</div></div>
-    </div>
-  </div>`;
+  const helpDetails = Object.entries(helpGroups).map(([g, items]) => {
+    const dim = groupDim(g);
+    const colspan = dim === "none" ? 3 : 4;
+    const paged = pagedRows(`external-help:${g}`, items, ([e, i]) => `
+        <tr><td>${esc(e.category)}</td>${dim !== "none" ? `<td class="muted">${esc((dim === "location" ? e.location : e.person) || "—")}</td>` : ""}
+        <td class="num"><input class="inline-input" value="${num(e.amount)}" onchange="updExpense(${i},this.value)"></td>
+        <td><button class="icon-btn" title="Edit" onclick="editExpense(${i})">✎</button>
+            <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`);
+    return `<div class="help-source"><h3>${esc(g)} <span class="chip green">${fmtMoney(items.reduce((s, [e]) => s + Math.max(0, num(e.amount)), 0))}</span>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <button class="btn small ghost" title="Section settings" onclick="editExpenseSection('${esc(g)}')">⚙</button>
+        <button class="btn small secondary" onclick="addExpense('${esc(g)}')">+ Add</button></span></h3>
+      <div class="table-wrap"><table><thead><tr><th>Category</th>${dim !== "none" ? `<th>${DIM_LABEL[dim]}</th>` : ""}<th class="num">Potential Help</th><th></th></tr></thead>
+      <tbody>${paged.html || `<tr><td colspan="${colspan}" class="muted">No help entries yet — click + Add.</td></tr>`}</tbody></table></div>${paged.footer}
+    </div>`;
+  }).join("");
+  const comparisonCard = externalHelpComparisonCard(withHelp,
+    helpDetails ? `<div class="help-sources"><h3>Help recorded for expenses</h3>${helpDetails}</div>` : "");
 
-  const analytics = (total || inHand || outsideHelp) ? `
+  const analytics = (total || inHand) ? `
   <div class="grid kpis">
     <div class="kpi"><div class="label">Recurring Spend</div><div class="value">${fmtMoney(total)}</div>
       <div class="delta muted">${inHand ? fmtPct(total / inHand) + " of in-hand" : ""}</div></div>
-    <div class="kpi"><div class="label">Potential Outside Help</div><div class="value pos">${fmtMoney(outsideHelp)}</div>
-      <div class="delta muted">available support · not an expense</div></div>
     <div class="kpi"><div class="label">Total Outflow</div><div class="value">${fmtMoney(total + emiTotal + invTotal)}</div>
       <div class="delta muted">incl. EMIs &amp; investments</div></div>
     <div class="kpi"><div class="label">Biggest Category</div><div class="value" style="font-size:18px">${topCat ? esc(topCat.label) : "—"}</div>
@@ -1431,28 +1435,11 @@ PAGES.expenses = () => {
   <div class="panel"><h2>Section Breakdown by Category</h2>${sectionBreakdown || '<div class="empty">No data</div>'}</div>` : "";
 
   return pageHead("Monthly Expenses",
-    `Recurring spend: <b>${fmtMoney(total)}</b> &nbsp;·&nbsp; + loan EMIs ${fmtMoney(emiTotal)} &nbsp;·&nbsp; + in-hand investments ${fmtMoney(invTotal)} &nbsp;=&nbsp; <b>${fmtMoney(total + emiTotal + invTotal)}</b> total outflow &nbsp;·&nbsp; potential outside help: <b class="pos">${fmtMoney(outsideHelp)}</b>`,
+    `Recurring spend: <b>${fmtMoney(total)}</b> &nbsp;·&nbsp; + loan EMIs ${fmtMoney(emiTotal)} &nbsp;·&nbsp; + in-hand investments ${fmtMoney(invTotal)} &nbsp;=&nbsp; <b>${fmtMoney(total + emiTotal + invTotal)}</b> total outflow`,
     `<button class="btn" onclick="addExpense()">+ Add Expense</button>
      <button class="btn secondary" onclick="addExpenseSection()">+ Add Section</button>`) +
     analytics + comparisonCard +
-    (Object.entries(helpGroups).map(([g, items]) => {
-      const sub = items.reduce((s, [e]) => s + num(e.amount), 0);
-      const dim = groupDim(g);
-      const paged = pagedRows(`external-help:${g}`, items, ([e, i]) => `
-          <tr><td>${esc(e.category)}</td>${dim !== "none" ? `<td class="muted">${esc((dim === "location" ? e.location : e.person) || "—")}</td>` : ""}
-          <td class="num"><input class="inline-input" value="${num(e.amount)}" onchange="updExpense(${i},this.value)"></td>
-          <td><button class="icon-btn" title="Edit" onclick="editExpense(${i})">✎</button>
-              <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`);
-      return `<div class="panel outside-help-panel"><h2><span>${esc(g)} <span class="chip green">${fmtMoney(sub)}</span></span>
-        <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-          <span class="chip green">Potential help · not an expense</span>
-          <button class="btn small ghost" title="Section settings" onclick="editExpenseSection('${esc(g)}')">⚙</button>
-          <button class="btn small secondary" onclick="addExpense('${esc(g)}')">+ Add</button></span></h2>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Category</th>${dim !== "none" ? `<th>${DIM_LABEL[dim]}</th>` : ""}<th class="num">Monthly Help</th><th style="width:70px"></th></tr></thead>
-        <tbody>${paged.html || `<tr><td colspan="4" class="muted">No help entries yet — click + Add.</td></tr>`}
-        </tbody></table></div>${paged.footer}</div>`;
-    }).join("") + (Object.entries(groups).map(([g, items]) => {
+    (Object.entries(groups).map(([g, items]) => {
       const sub = items.reduce((s, [e]) => s + num(e.amount), 0);
       const dim = groupDim(g);
       const paged = pagedRows(`expenses:${g}`, items, ([e, i]) => `
@@ -1469,7 +1456,7 @@ PAGES.expenses = () => {
         <thead><tr><th>Category</th>${dim !== "none" ? `<th>${DIM_LABEL[dim]}</th>` : ""}<th class="num">Monthly Cost</th><th style="width:70px"></th></tr></thead>
         <tbody>${paged.html || `<tr><td colspan="4" class="muted">No entries yet — click + Add.</td></tr>`}
         </tbody></table></div>${paged.footer}</div>`;
-    }).join("") || '<div class="panel"><div class="empty">No expenses yet.</div></div>'));
+    }).join("") || '<div class="panel"><div class="empty">No expenses yet.</div></div>');
 };
 function addExpenseSection(g) {
   const meta = DB.settings.predefined.expenseGroupMeta;

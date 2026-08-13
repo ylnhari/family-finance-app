@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { loanState, incomeTotalsForYear, computeGoldGain, maturityInfo,
-        num, expenseTotal, externalHelpTotal,
+        num, expenseTotal, externalHelpTotal, expenseGroupTotals,
         ledgerNet, ledgerCashback, ledgerTotals } = require("../public/finance-math.js");
 
 const SAMPLE = path.join(__dirname, "..", "samples", "demo-finances.json");
@@ -126,6 +126,9 @@ test("sample: outside help is present and excluded from expenses", () => {
   assert.ok(DB.expenses.some(e => /external help|family support/i.test(e.group || "")));
   assert.equal(expenses + help, raw, "outside help is not counted as expense");
   assert.equal(meta["External Help / Family Support"].kind, "externalHelp");
+  const groups = expenseGroupTotals(DB.expenses, meta);
+  assert.equal(groups["External Help / Family Support"], undefined);
+  assert.equal(Object.values(groups).reduce((sum, amount) => sum + amount, 0), expenses);
 });
 
 test("sample: monthly investments cover IN HAND / GROSS / CTC sources", () => {

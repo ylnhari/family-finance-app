@@ -10,9 +10,17 @@ const num = v => { const n = parseFloat(String(v).replace(/[,\s]/g, "")); return
    household.  Keep the legacy labels recognized while allowing the UI to
    explicitly mark any section as external help.  Such rows are displayed as
    potential support, never as an expense or cash outflow. */
-const EXTERNAL_HELP_GROUP_RE = /\b(?:external\s+help|family\s+support|outside\s+help|help\s+from\s+outside|external\s+support|family\s+help)\b/i;
+const EXTERNAL_HELP_GROUPS = new Set([
+  "external help",
+  "family support",
+  "external help / family support",
+  "outside help",
+  "help from outside",
+  "external support",
+  "family help",
+]);
 function isExternalHelpGroup(group) {
-  return EXTERNAL_HELP_GROUP_RE.test(String(group || "").trim());
+  return EXTERNAL_HELP_GROUPS.has(String(group || "").trim().toLowerCase());
 }
 function isExternalHelpEntry(entry, groupMeta) {
   if (!entry) return false;
@@ -22,30 +30,43 @@ function isExternalHelpEntry(entry, groupMeta) {
 }
 function externalHelpTotal(entries, groupMeta) {
   return (entries || []).reduce((sum, entry) =>
-    sum + (isExternalHelpEntry(entry, groupMeta) ? num(entry.amount) : 0), 0);
+    sum + (isExternalHelpEntry(entry, groupMeta) ? Math.max(0, num(entry.amount)) : 0), 0);
 }
 function expenseTotal(entries, groupMeta) {
   return (entries || []).reduce((sum, entry) =>
     sum + (isExternalHelpEntry(entry, groupMeta) ? 0 : num(entry.amount)), 0);
 }
-/* Compare the same monthly cashflow after treating outside help as available
-   support.  The base expense/outflow values remain unchanged; only the
-   available income and resulting savings/surplus change. */
+function expenseGroupTotals(entries, groupMeta) {
+  return (entries || []).reduce((totals, entry) => {
+    if (isExternalHelpEntry(entry, groupMeta)) return totals;
+    const group = String(entry.group || "Other");
+    totals[group] = (totals[group] || 0) + num(entry.amount);
+    return totals;
+  }, {});
+}
+/* Compare monthly cashflow after potential help covers expenses. Income does
+   not change; only the expense portion of outflow can be reduced, capped at
+   zero. */
 function withExternalHelpSummary({ inHand = 0, expenses = 0, totalOutflow = 0,
   outsideHelp = 0, investments = 0 } = {}) {
-  const availableIncome = num(inHand) + num(outsideHelp);
-  const outflow = num(totalOutflow);
-  const surplus = availableIncome - outflow;
+  const baseExpenses = Math.max(0, num(expenses));
+  const appliedHelp = Math.min(baseExpenses, Math.max(0, num(outsideHelp)));
+  const expensesAfterHelp = baseExpenses - appliedHelp;
+  const baseOutflow = Math.max(0, num(totalOutflow));
+  const outflow = Math.max(0, baseOutflow - appliedHelp);
+  const income = num(inHand);
+  const surplus = income - outflow;
   const savings = num(investments) + surplus;
   return {
-    expenses: num(expenses),
-    outsideHelp: num(outsideHelp),
-    inHand: num(inHand),
-    availableIncome,
+    expenses: baseExpenses,
+    expensesAfterHelp,
+    outsideHelp: Math.max(0, num(outsideHelp)),
+    appliedHelp,
+    inHand: income,
     outflow,
     surplus,
     savings,
-    savingsRate: availableIncome > 0 ? savings / availableIncome : 0,
+    savingsRate: income > 0 ? savings / income : 0,
   };
 }
 
@@ -298,6 +319,7 @@ if (typeof module !== "undefined" && module.exports) {
     num, calcEMI, outstandingFromEMI, amortSchedule, monthsSince, loanState,
     validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo,
     isExternalHelpGroup, isExternalHelpEntry, externalHelpTotal, expenseTotal,
+    expenseGroupTotals,
     withExternalHelpSummary,
     ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
   };

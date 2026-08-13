@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const {
   num, calcEMI, outstandingFromEMI, amortSchedule, loanState,
   validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo,
-  isExternalHelpGroup, isExternalHelpEntry, externalHelpTotal, expenseTotal,
+  isExternalHelpGroup, isExternalHelpEntry, externalHelpTotal, expenseTotal, expenseGroupTotals,
   withExternalHelpSummary,
   ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
 } = require("../public/finance-math.js");
@@ -247,10 +247,13 @@ test("external help is shown separately and excluded from expense totals", () =>
   assert.equal(expenseTotal(rows, {}), 47000);
   assert.equal(isExternalHelpGroup("help from outside"), true);
   assert.equal(isExternalHelpGroup("Family Function"), false);
+  assert.equal(isExternalHelpGroup("Housing with external help"), false);
+  assert.equal(isExternalHelpGroup("With external help"), false);
   assert.equal(isExternalHelpEntry(rows[2], meta), true);
+  assert.deepEqual(expenseGroupTotals(rows, meta), { Housing: 42000 });
 });
 
-test("withExternalHelpSummary keeps outflow fixed and increases available savings", () => {
+test("withExternalHelpSummary reduces covered expenses without changing income", () => {
   const summary = withExternalHelpSummary({
     inHand: 100000,
     expenses: 55000,
@@ -260,14 +263,30 @@ test("withExternalHelpSummary keeps outflow fixed and increases available saving
   });
   assert.deepEqual(summary, {
     expenses: 55000,
+    expensesAfterHelp: 35000,
     outsideHelp: 20000,
+    appliedHelp: 20000,
     inHand: 100000,
-    availableIncome: 120000,
-    outflow: 75000,
+    outflow: 55000,
     surplus: 45000,
     savings: 55000,
-    savingsRate: 55 / 120,
+    savingsRate: 0.55,
   });
+});
+
+test("withExternalHelpSummary caps help at baseline expenses", () => {
+  const summary = withExternalHelpSummary({
+    inHand: 100000,
+    expenses: 15000,
+    totalOutflow: 40000,
+    outsideHelp: 25000,
+    investments: 5000,
+  });
+  assert.equal(summary.appliedHelp, 15000);
+  assert.equal(summary.expensesAfterHelp, 0);
+  assert.equal(summary.outflow, 25000);
+  assert.equal(summary.inHand, 100000);
+  assert.equal(summary.savingsRate, 0.8);
 });
 
 /* ---------------- gold gain ---------------- */
