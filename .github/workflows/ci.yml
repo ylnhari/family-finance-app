@@ -33,6 +33,13 @@ jobs:
       # No dependencies to install — the app and its tests are stdlib-only.
       - name: Python tests (server, persistence, --demo isolation, gemini parse)
         run: python -m unittest discover -s tests -p "test_*.py" -v
+        env:
+          # Windows runner profiles may expose TEMP through an 8.3 alias
+          # (RUNNER~1) while Path.resolve() returns the long spelling. Use the
+          # runner-owned long path so canonical portlib path tests compare one
+          # stable representation on every OS.
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
 
       - name: JS tests (finance math, sample integrity)
         run: node --test tests/math.test.js tests/sample.test.js
