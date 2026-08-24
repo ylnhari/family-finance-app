@@ -27,6 +27,33 @@ from investlib import analysis, ipo, ipo_fetch, market_calendar, store
 WINT_REMIND_EVERY_DAYS = 7  # don't re-nag more than once a week even if still stale
 
 
+def _post_ntfy(message: str, *, title: str, tags: str) -> None:
+    topic = config.notification_topic()
+    if not topic:
+        print("INVESTMENTS_NTFY_TOPIC not set; printing only")
+        return
+    if requests is None:
+        print("requests not installed (pip install -r requirements-invest.txt); printing only")
+        return
+
+    try:
+        response = requests.post(
+            f"https://ntfy.sh/{topic}",
+            data=message.encode("utf-8"),
+            headers={"Title": title, "Tags": tags},
+            timeout=30,
+        )
+    except Exception as exc:
+        # Do not include the exception text: requests errors can contain the
+        # topic URL, which is the notification secret.
+        raise RuntimeError(f"ntfy push failed ({type(exc).__name__})") from None
+
+    status_code = getattr(response, "status_code", None)
+    if not isinstance(status_code, int) or not 200 <= status_code < 300:
+        status = status_code if isinstance(status_code, int) else "unknown"
+        raise RuntimeError(f"ntfy push rejected (HTTP {status})")
+
+
 def build_message(today: date | None = None) -> str | None:
     today = today or date.today()
     if not market_calendar.is_ipo_bidding_day(today):
@@ -55,16 +82,7 @@ def build_message(today: date | None = None) -> str | None:
 
 
 def push(message: str) -> None:
-    topic = config.notification_topic()
-    if not topic:
-        print("INVESTMENTS_NTFY_TOPIC not set; printing only")
-        return
-    if requests is None:
-        print("requests not installed (pip install -r requirements-invest.txt); printing only")
-        return
-    requests.post(f"https://ntfy.sh/{topic}", data=message.encode("utf-8"),
-                  headers={"Title": "IPO alert", "Tags": "chart_with_upwards_trend"},
-                  timeout=30)
+    _post_ntfy(message, title="IPO alert", tags="chart_with_upwards_trend")
 
 
 def build_allotment_reminder() -> str | None:
@@ -79,16 +97,7 @@ def build_allotment_reminder() -> str | None:
 
 
 def push_allotment_reminder(message: str) -> None:
-    topic = config.notification_topic()
-    if not topic:
-        print("INVESTMENTS_NTFY_TOPIC not set; printing only")
-        return
-    if requests is None:
-        print("requests not installed (pip install -r requirements-invest.txt); printing only")
-        return
-    requests.post(f"https://ntfy.sh/{topic}", data=message.encode("utf-8"),
-                  headers={"Title": "IPO allotment day", "Tags": "tickets"},
-                  timeout=30)
+    _post_ntfy(message, title="IPO allotment day", tags="tickets")
 
 
 def build_wint_reminder() -> str | None:
@@ -115,16 +124,7 @@ def build_wint_reminder() -> str | None:
 
 
 def push_wint_reminder(message: str) -> None:
-    topic = config.notification_topic()
-    if not topic:
-        print("INVESTMENTS_NTFY_TOPIC not set; printing only")
-        return
-    if requests is None:
-        print("requests not installed (pip install -r requirements-invest.txt); printing only")
-        return
-    requests.post(f"https://ntfy.sh/{topic}", data=message.encode("utf-8"),
-                  headers={"Title": "Wint Wealth: time to refresh", "Tags": "receipt"},
-                  timeout=30)
+    _post_ntfy(message, title="Wint Wealth: time to refresh", tags="receipt")
 
 
 if __name__ == "__main__":

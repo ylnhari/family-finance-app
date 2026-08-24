@@ -25,6 +25,9 @@ demo-data/
 # server holds, so never commit them
 tools/e2e/shots/
 
+# Codex remote attachments may contain private screenshots or identifiers
+.codex-remote-attachments/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

@@ -1278,6 +1278,7 @@ class TestMissingExtras(unittest.TestCase):
         import daily_brief
 
         fake_requests = mock.Mock()
+        fake_requests.post.return_value.status_code = 200
         with mock.patch.object(daily_brief, "requests", fake_requests), \
                 mock.patch.dict("os.environ", {
                     "NTFY_TOPIC": "generic-topic",
@@ -1288,6 +1289,32 @@ class TestMissingExtras(unittest.TestCase):
         fake_requests.post.assert_called_once()
         self.assertEqual(fake_requests.post.call_args.args[0],
                          "https://ntfy.sh/investments-topic")
+
+    def test_daily_brief_push_rejects_http_failure_without_topic_leak(self):
+        from unittest import mock
+        import daily_brief
+
+        fake_requests = mock.Mock()
+        fake_requests.post.return_value.status_code = 401
+        with mock.patch.object(daily_brief, "requests", fake_requests), \
+                mock.patch.dict("os.environ", {"INVESTMENTS_NTFY_TOPIC": "secret-topic"}):
+            with self.assertRaisesRegex(RuntimeError, r"ntfy push rejected \(HTTP 401\)") as ctx:
+                daily_brief.push("hello")
+
+        self.assertNotIn("secret-topic", str(ctx.exception))
+
+    def test_daily_brief_push_rejects_transport_failure_without_topic_leak(self):
+        from unittest import mock
+        import daily_brief
+
+        fake_requests = mock.Mock()
+        fake_requests.post.side_effect = RuntimeError("https://ntfy.sh/secret-topic leaked")
+        with mock.patch.object(daily_brief, "requests", fake_requests), \
+                mock.patch.dict("os.environ", {"INVESTMENTS_NTFY_TOPIC": "secret-topic"}):
+            with self.assertRaisesRegex(RuntimeError, r"ntfy push failed \(RuntimeError\)") as ctx:
+                daily_brief.push("hello")
+
+        self.assertNotIn("secret-topic", str(ctx.exception))
 
     def test_refresh_tokens_push_targets_investments_topic(self):
         from unittest import mock

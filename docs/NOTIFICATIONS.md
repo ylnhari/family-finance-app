@@ -27,6 +27,10 @@ reasonable default; adjust to taste):
   only public NSE/Upstox data (names, subscription multiples, the apply/skip call); the
   Wint reminder carries only "it's been N days," never an amount. All real numbers stay
   on the local dashboard at `/invest`.
+- When a topic is configured, a non-2xx ntfy response or transport failure makes the
+  script fail with a topic-safe error. This prevents Task Scheduler from reporting a
+  false success when ntfy rejects the push; a 2xx response still confirms only that ntfy
+  accepted the request, not that a phone displayed it.
 - If `INVESTMENTS_NTFY_TOPIC` isn't set, it just prints what it would have sent and exits — safe to
   run with no config at all.
 
