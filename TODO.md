@@ -1,12 +1,14 @@
 # TODO
-- Under income page 
-    - While adding a salary row the server hit `PermissionError: [Errno 13] Permission denied` on `data/finances.json.tmp` (in `do_PUT`, server.py around line 352) — investigate the temp-file write/replace on Windows
 ----------------------------------------
 - Under portfolio page have charts one for each person and a seprate chart for gold by person and at family level single combined visualization which include gold 
-- In the dashboard have two visualizations one is monthly investment allocation pie chart by percentage across multiple groups and then portfolio allocation across classes which you already have, you can keep it that way.
-- and for ploy loads which hasve been already added give option add record part payment and either ask user to adjust tenure or ami amount as you know you can calculate the amount pre payed peidng intrest and what ever you are doing for fresh or midway load you can do the same, once user records prepayment code logic will update all numbers accordingly.
-- In main dashbaord have assets value and also show asset value by type if asset like liquid, equity , real estate and then show liability value an dthen show networth if possible have a visualization there 
-- goal value update based on the todays price use gemini models search with grounding to fetch data if theere is an error or issue there simply use last calcua;ted value give user a button when pressed use the same process and if found value update it , under physical gold section let user add the proce at which they have boaught if given calcualte the investment gain , if not ignore and add this to investment performance and also have visualization for that in the dashbaord on how well it performed same visualizations keep in portfolio page as well
+
+All items from the previous list were implemented on 2026-09-07:
+- [x] The salary-row save that failed with `PermissionError` on `data/finances.json.tmp`: every JSON write now goes through `atomic_write.py`, which writes into the target's own directory, flushes and fsyncs, then retries `os.replace` against the transient Windows sharing violations and raises rather than losing the previous file.
+
+- [x] In the dashboard have two visualizations one is monthly investment allocation pie chart by percentage across multiple groups and then portfolio allocation across classes which you already have, you can keep it that way.
+- [x] and for ploy loads which hasve been already added give option add record part payment and either ask user to adjust tenure or ami amount as you know you can calculate the amount pre payed peidng intrest and what ever you are doing for fresh or midway load you can do the same, once user records prepayment code logic will update all numbers accordingly.
+- [x] In main dashbaord have assets value and also show asset value by type if asset like liquid, equity , real estate and then show liability value an dthen show networth if possible have a visualization there 
+- [x] goal value update based on the todays price use gemini models search with grounding to fetch data if theere is an error or issue there simply use last calcua;ted value give user a button when pressed use the same process and if found value update it , under physical gold section let user add the proce at which they have boaught if given calcualte the investment gain , if not ignore and add this to investment performance and also have visualization for that in the dashbaord on how well it performed same visualizations keep in portfolio page as well
 
 All items from the previous list were implemented on 2026-06-14:
 

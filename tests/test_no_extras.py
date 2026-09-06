@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # app and was never supposed to run with zero installs.)
 MODULES = [
     "config",
+    "atomic_write",
     "server",
     "invest_api",
     "invest_cli",

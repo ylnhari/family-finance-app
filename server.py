@@ -30,6 +30,7 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 import config as invest_config  # side effect: loads .env (GEMINI_API_KEY, broker keys)
 import invest_api
+from atomic_write import atomic_write_json
 from investlib import bridge as invest_bridge
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -359,10 +360,7 @@ def _finances_add_person(name):
         if name in persons:
             return
         persons.append(name)
-        tmp = data_file() + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(doc, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, data_file())
+        atomic_write_json(data_file(), doc)
 
 
 def ensure_data(seed_file=None):
@@ -797,10 +795,7 @@ class Handler(BaseHTTPRequestHandler):
         data.setdefault("settings", {})["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
         with file_lock(data_file()):
             make_backup()  # automatic rotating daily backup (first save of the day)
-            tmp = data_file() + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            os.replace(tmp, data_file())
+            atomic_write_json(data_file(), data)
         self._send(200, {"ok": True, "lastUpdated": data["settings"]["lastUpdated"]})
 
     def do_POST(self):

@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 import config
+from atomic_write import atomic_write_json
 
 # Broker types an account can be. These drive login/sync capability and the
 # per-id .env var convention (kite/upstox log in; coin rides a kite session;
@@ -47,9 +48,7 @@ def load(collection: str, default=None):
 
 def save(collection: str, data) -> None:
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = _path(collection).with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(_path(collection))
+    atomic_write_json(_path(collection), data)
 
 
 def _infer_broker_type(account_id: str) -> str:
