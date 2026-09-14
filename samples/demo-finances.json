@@ -1407,6 +1407,18 @@
           "extraCharges": 0,
           "cancelled": false,
           "notes": "sent via UPI"
+        },
+        {
+          "id": "11111111-2222-4333-8444-555555555555",
+          "date": "2026-09-14",
+          "type": "credit",
+          "instrument": "Demo Savings",
+          "amount": 15000,
+          "cashbackMode": "fixed",
+          "cashback": 0,
+          "extraCharges": 0,
+          "cancelled": false,
+          "notes": "demo MCP ledger record"
         }
       ]
     }

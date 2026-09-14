@@ -35,6 +35,8 @@ test("sample: lending ledgers cover 2 people, multi-year, %-cashback, cancelled 
   const dirs = new Set(DB.ledgers.map(L => ledgerTotals(L.transactions).direction));
   assert.ok(dirs.has("receive"), "someone owes you");
   assert.ok(dirs.has("owe"), "you owe someone");
+  assert.ok(all.some(t => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t.id)),
+    "an idempotent MCP-compatible ledger record");
   // one ledger-year must exceed a UI page (25 rows) so the "Show more" flow stays demoable
   const maxYearCount = Math.max(...DB.ledgers.flatMap(
     L => ledgerTotals(L.transactions).byYear.map(y => y.count)));

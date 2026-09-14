@@ -35,15 +35,28 @@ def _free_port():
     return port
 
 
-def _req(method, url, body=None):
+def _req(method, url, body=None, headers=None):
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers = {"Content-Type": "application/json"} if data else {}
+    headers = dict(headers or {})
+    if data:
+        headers.setdefault("Content-Type", "application/json")
     r = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(r, timeout=10) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read().decode("utf-8"))
+
+
+def _data_etag(url):
+    """Read the current optimistic-concurrency token without exposing the body."""
+    with urllib.request.urlopen(url, timeout=10) as response:
+        return response.headers.get("ETag")
+
+
+def _put_data(url, body, etag=None):
+    """Normal whole-document client save with a current revision token."""
+    return _req("PUT", url, body, headers={"If-Match": etag or _data_etag(url)})
 
 
 def _raw(method, url, body=None, ctype="application/octet-stream"):
@@ -220,7 +233,7 @@ class ServerTests(unittest.TestCase):
                                "gold", "loans", "goals", "cards", "documents")}
         doc["settings"] = {"appName": "RT"}
         doc["income"] = {"persons": []}
-        st, _ = _req("PUT", self.base + "/api/data", doc)
+        st, _ = _put_data(self.base + "/api/data", doc)
         self.assertEqual(st, 200)
         st, got = _req("GET", self.base + "/api/data")
         for key in ("settings", "income", "expenses", "loans", "portfolio", "gold", "goals", "cards"):
@@ -228,7 +241,7 @@ class ServerTests(unittest.TestCase):
 
     def test_put_roundtrip_persists(self):
         payload = {"settings": {}, "loans": [], "expenses": [], "marker": "hello-123"}
-        st, body = _req("PUT", self.base + "/api/data", payload)
+        st, body = _put_data(self.base + "/api/data", payload)
         self.assertEqual(st, 200)
         self.assertTrue(body["ok"])
         st, got = _req("GET", self.base + "/api/data")
@@ -241,9 +254,9 @@ class ServerTests(unittest.TestCase):
 
         def writer(n):
             try:
-                st, _ = _req("PUT", self.base + "/api/data",
-                             {"settings": {}, "loans": [], "n": n})
-                if st != 200:
+                st, _ = _put_data(self.base + "/api/data",
+                                  {"settings": {}, "loans": [], "n": n})
+                if st not in (200, 409):
                     errors.append(st)
             except Exception as e:  # noqa: BLE001
                 errors.append(repr(e))
@@ -253,7 +266,7 @@ class ServerTests(unittest.TestCase):
             t.start()
         for t in threads:
             t.join()
-        self.assertEqual(errors, [], "concurrent PUTs should all succeed")
+        self.assertEqual(errors, [], "concurrent PUTs should save or reject as stale")
         # file must still be valid JSON after the storm
         st, got = _req("GET", self.base + "/api/data")
         self.assertEqual(st, 200)
@@ -264,7 +277,7 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(SAMPLE), "samples/demo-finances.json missing")
         with open(SAMPLE, "r", encoding="utf-8") as f:
             sample = json.load(f)
-        st, body = _req("PUT", self.base + "/api/data", sample)
+        st, body = _put_data(self.base + "/api/data", sample)
         self.assertEqual(st, 200)
         st, got = _req("GET", self.base + "/api/data")
         self.assertTrue(got["income"]["persons"], "sample should have earners")
@@ -273,7 +286,7 @@ class ServerTests(unittest.TestCase):
                         "sample should demo a loan prepayment")
 
     def test_backup_and_list(self):
-        _req("PUT", self.base + "/api/data", {"settings": {}, "loans": []})
+        _put_data(self.base + "/api/data", {"settings": {}, "loans": []})
         st, body = _req("POST", self.base + "/api/backup")
         self.assertEqual(st, 200)
         self.assertTrue(body["name"].endswith(".json"))
@@ -366,6 +379,20 @@ class ServerTests(unittest.TestCase):
         st, body, _ = _raw("PUT", self.base + "/api/data", b"{not valid json", "application/json")
         self.assertEqual(st, 400)
 
+    def test_put_requires_matching_document_revision(self):
+        url = self.base + "/api/data"
+        original_etag = _data_etag(url)
+        stale_doc = {"settings": {}, "loans": [], "marker": "stale"}
+        st, body = _req("PUT", url, stale_doc)
+        self.assertEqual(st, 428)
+        self.assertIn("version", body["error"])
+
+        st, body = _put_data(url, {"settings": {}, "loans": [], "marker": "fresh"}, original_etag)
+        self.assertEqual(st, 200)
+        st, body = _req("PUT", url, stale_doc, headers={"If-Match": original_etag})
+        self.assertEqual(st, 409)
+        self.assertIn("changed", body["error"])
+
     def test_delete_missing_file_404(self):
         st, body = _req("DELETE", self.base + "/api/files/nope-not-here.txt")
         self.assertEqual(st, 404)
@@ -373,10 +400,10 @@ class ServerTests(unittest.TestCase):
     # ---- backup / restore ------------------------------------------------
 
     def test_restore_roundtrip(self):
-        _req("PUT", self.base + "/api/data", {"settings": {}, "loans": [], "tag": "before"})
+        _put_data(self.base + "/api/data", {"settings": {}, "loans": [], "tag": "before"})
         st, b = _req("POST", self.base + "/api/backup")
         snap = b["name"]
-        _req("PUT", self.base + "/api/data", {"settings": {}, "loans": [], "tag": "after"})
+        _put_data(self.base + "/api/data", {"settings": {}, "loans": [], "tag": "after"})
         st, _ = _req("POST", self.base + "/api/restore?name=" + snap)
         self.assertEqual(st, 200)
         st, got = _req("GET", self.base + "/api/data")
@@ -572,7 +599,7 @@ class ServerTests(unittest.TestCase):
             "invested": 1, "currentValue": 999999, "lastSynced": "1970-01-01T00:00:00",
         })
         data["portfolio"] = tampered_portfolio
-        st, _ = _req("PUT", self.base + "/api/data", data)
+        st, _ = _put_data(self.base + "/api/data", data)
         self.assertEqual(st, 200)
 
         st, got = _req("GET", self.base + "/api/data")

@@ -2,6 +2,7 @@
 "use strict";
 
 let DB = null;            // the whole data document
+let dataRevision = null;  // server ETag for optimistic whole-document saves
 let currentPage = "dashboard";
 let saveTimer = null;
 let incomeYear = null;          // null = auto-select latest year per earner
@@ -10,6 +11,9 @@ let hideValues = localStorage.getItem("ffa_hideValues") === "1";
 /* ================= persistence ================= */
 async function loadDB() {
   const r = await fetch("/api/data");
+  if (!r.ok) throw new Error((await r.json()).error || r.status);
+  dataRevision = r.headers.get("ETag");
+  if (!dataRevision) throw new Error("Server did not provide a data version");
   DB = await r.json();
   migrate();
 }
@@ -149,9 +153,20 @@ function save(immediate) {
 }
 async function doSave() {
   try {
-    const r = await fetch("/api/data", { method: "PUT", body: JSON.stringify(DB) });
-    if (!r.ok) throw new Error((await r.json()).error || r.status);
+    if (!dataRevision) throw new Error("Data version unavailable; reload before saving");
+    const r = await fetch("/api/data", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "If-Match": dataRevision },
+      body: JSON.stringify(DB)
+    });
     const j = await r.json();
+    if (!r.ok) {
+      if (r.status === 409 || r.status === 428)
+        throw new Error("Data changed in another session. Reload this page before saving.");
+      throw new Error(j.error || r.status);
+    }
+    dataRevision = r.headers.get("ETag");
+    if (!dataRevision) throw new Error("Server did not return a data version");
     DB.settings.lastUpdated = j.lastUpdated;
     setSaveStatus("saved");
     el("#lastUpdated").textContent = "Updated " + fmtDateTime(j.lastUpdated);

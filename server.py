@@ -12,6 +12,7 @@ just keep (or delete) your own data directory.
 import argparse
 import portlib
 import base64
+import hashlib
 import json
 import os
 import re
@@ -322,6 +323,23 @@ def gemini_price_search(goal_name, goal_type, prompt=None):
 
 def data_file():
     return os.path.join(DATA_DIR, "finances.json")
+
+
+def document_revision(document):
+    """Opaque strong revision for the persisted finance document.
+
+    The browser supplies this value as an If-Match ETag on every whole-document
+    save.  That prevents a tab holding an older snapshot from overwriting a
+    narrower MCP mutation (or another browser save).
+    """
+    payload = json.dumps(
+        document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def document_etag(document):
+    return '"%s"' % document_revision(document)
 
 
 def files_dir():
@@ -698,13 +716,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/data":
             with open(data_file(), "r", encoding="utf-8") as f:
                 doc = json.load(f)
+            etag = document_etag(doc)
             try:
                 doc = invest_bridge.inject_live_rows(doc)
             except Exception as e:
                 # never let a broken invest store take down the finance app —
                 # degrade to no live rows, but surface it so the UI can toast it.
                 doc["liveRowsError"] = str(e)
-            self._send(200, doc)
+            self._send(200, doc, extra={"ETag": etag})
         elif path == "/api/files":
             items = []
             for n in sorted(os.listdir(files_dir())):
@@ -782,21 +801,35 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self._body().decode("utf-8"))
         except Exception as e:
             return self._err(400, "Invalid JSON: %s" % e)
-        try:
-            # Live rows are server-owned: replace whatever the client sent
-            # (possibly stale/tampered) with freshly computed ones before
-            # this is ever written to disk.
-            data = invest_bridge.inject_live_rows(data)
-        except Exception:
-            # invest store unreadable — degrade to no live rows rather than
-            # fail the save, but never persist a client-sent liveSync row
-            # we couldn't verify.
-            data["portfolio"] = [r for r in (data.get("portfolio") or []) if not r.get("liveSync")]
-        data.setdefault("settings", {})["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
+        if not isinstance(data, dict):
+            return self._err(400, "Top-level JSON must be an object")
+        if not self.headers.get("If-Match"):
+            return self._err(428, "Data version required; reload before saving")
         with file_lock(data_file()):
+            with open(data_file(), "r", encoding="utf-8") as f:
+                current = json.load(f)
+            current_etag = document_etag(current)
+            if self.headers.get("If-Match").strip() != current_etag:
+                return self._send(409, {"error": "Data changed; reload before saving"},
+                                  extra={"ETag": current_etag})
+            try:
+                # Live rows are server-owned: replace whatever the client sent
+                # (possibly stale/tampered) with freshly computed ones before
+                # this is ever written to disk.
+                data = invest_bridge.inject_live_rows(data)
+            except Exception:
+                # invest store unreadable — degrade to no live rows rather than
+                # fail the save, but never persist a client-sent liveSync row
+                # we couldn't verify.
+                data["portfolio"] = [r for r in (data.get("portfolio") or []) if not r.get("liveSync")]
+            settings = data.setdefault("settings", {})
+            if not isinstance(settings, dict):
+                return self._err(400, "settings must be an object")
+            settings["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
             make_backup()  # automatic rotating daily backup (first save of the day)
             atomic_write_json(data_file(), data)
-        self._send(200, {"ok": True, "lastUpdated": data["settings"]["lastUpdated"]})
+        self._send(200, {"ok": True, "lastUpdated": settings["lastUpdated"]},
+                   extra={"ETag": document_etag(data)})
 
     def do_POST(self):
         parsed = urlparse(self.path)

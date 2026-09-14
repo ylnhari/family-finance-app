@@ -48,6 +48,8 @@ ROOT = Path(__file__).resolve().parent.parent
 MODULES = [
     "config",
     "atomic_write",
+    "ledger_store",
+    "mcp_ledger_server",
     "server",
     "invest_api",
     "invest_cli",
