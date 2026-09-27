@@ -19,6 +19,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from collections import deque
 from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,7 +54,9 @@ def _req(method, url, body=None, headers=None):
 def _data_etag(url):
     """Read the current optimistic-concurrency token without exposing the body."""
     with urllib.request.urlopen(url, timeout=10) as response:
-        return response.headers.get("ETag")
+        etag = response.headers.get("ETag")
+        response.read()  # drain the response before closing the socket
+        return etag
 
 
 def _put_data(url, body, etag=None):
@@ -147,7 +150,19 @@ class ServerTests(unittest.TestCase):
         cls.proc = subprocess.Popen(
             [sys.executable, SERVER, "--port", str(cls.port),
              "--data-dir", cls.tmp, "--no-browser"],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+            text=True, encoding="utf-8", errors="replace")
+        # Keep the child's pipe draining during concurrent HTTP tests. Otherwise
+        # expected client disconnect tracebacks can fill the pipe and block its
+        # request threads; retain a small tail for startup diagnostics.
+        cls._server_output = deque(maxlen=200)
+
+        def drain_server_output():
+            for line in cls.proc.stdout:
+                cls._server_output.append(line.rstrip())
+
+        cls._log_reader = threading.Thread(target=drain_server_output, daemon=True)
+        cls._log_reader.start()
         cls._wait_ready()
         # The registry ships empty now (accounts are user data) — create the
         # accounts these tests exercise. kite-1 = stocks (manual/summary tests),
@@ -164,7 +179,7 @@ class ServerTests(unittest.TestCase):
                     return
             except Exception:
                 time.sleep(0.2)
-        raise RuntimeError("server did not start")
+        raise RuntimeError("server did not start:\n" + "\n".join(cls._server_output))
 
     @classmethod
     def tearDownClass(cls):
@@ -173,6 +188,9 @@ class ServerTests(unittest.TestCase):
             cls.proc.wait(timeout=5)
         except Exception:
             cls.proc.kill()
+            cls.proc.wait(timeout=5)
+        cls._log_reader.join(timeout=2)
+        cls.proc.stdout.close()
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_get_data_returns_json_object(self):
@@ -214,6 +232,58 @@ class ServerTests(unittest.TestCase):
                 srv.file_lock(base, timeout=0.3).__enter__()
         finally:
             held.__exit__(None, None, None)
+
+    def test_shared_document_read_waits_for_atomic_replace_lock(self):
+        # Import with dotenv disabled: test fixtures and this boundary check must
+        # never consult a developer's local configuration.
+        with mock.patch.dict(os.environ, {"FF_NO_DOTENV": "1"}):
+            import server as srv
+
+        before = {"marker": "before"}
+        after = {"marker": "after", "complete": [1, 2, 3]}
+        target = os.path.join(self.tmp, "finances.json")
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(before, f)
+
+        attempted = threading.Event()
+        finished = threading.Event()
+        result = {}
+        reader = None
+        real_file_lock = srv.file_lock
+
+        def track_read_lock(path, timeout=10.0):
+            attempted.set()
+            return real_file_lock(path, timeout)
+
+        with mock.patch.object(srv, "DATA_DIR", self.tmp):
+            held = real_file_lock(target)
+            held.__enter__()
+            try:
+                # This is the same atomic target replacement used by PUT, while
+                # the writer owns the sidecar lock.
+                srv.atomic_write_json(target, after)
+
+                def read_document():
+                    try:
+                        with mock.patch.object(srv, "file_lock", track_read_lock):
+                            result["document"] = srv.read_data()
+                    except Exception as exc:  # noqa: BLE001
+                        result["error"] = repr(exc)
+                    finally:
+                        finished.set()
+
+                reader = threading.Thread(target=read_document)
+                reader.start()
+                self.assertTrue(attempted.wait(2), "reader never attempted the sidecar lock")
+                self.assertFalse(finished.wait(0.2), "reader bypassed the writer lock")
+            finally:
+                held.__exit__(None, None, None)
+                if reader is not None:
+                    reader.join(2)
+        self.assertIsNotNone(reader)
+        self.assertFalse(reader.is_alive(), "reader did not finish after lock release")
+        self.assertNotIn("error", result)
+        self.assertEqual(result.get("document"), after)
 
     def test_occupied_port_fails_without_hopping(self):
         blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

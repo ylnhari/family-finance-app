@@ -325,6 +325,18 @@ def data_file():
     return os.path.join(DATA_DIR, "finances.json")
 
 
+def _read_data_unlocked():
+    """Read the finance document while the caller holds its sidecar lock."""
+    with open(data_file(), "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_data():
+    """Read a consistent finance document, coordinating with atomic writers."""
+    with file_lock(data_file()):
+        return _read_data_unlocked()
+
+
 def document_revision(document):
     """Opaque strong revision for the persisted finance document.
 
@@ -358,8 +370,7 @@ def backups_dir():
 
 def _finances_persons():
     try:
-        with open(data_file(), "r", encoding="utf-8") as f:
-            doc = json.load(f)
+        doc = read_data()
         return list(doc.get("settings", {}).get("persons", []))
     except Exception:
         return []
@@ -370,8 +381,7 @@ def _finances_add_person(name):
         return
     with file_lock(data_file()):
         try:
-            with open(data_file(), "r", encoding="utf-8") as f:
-                doc = json.load(f)
+            doc = _read_data_unlocked()
         except Exception:
             return
         persons = doc.setdefault("settings", {}).setdefault("persons", [])
@@ -815,8 +825,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"app": REGISTRY_KEY, "dataDir": os.path.abspath(DATA_DIR)})
             return
         if path == "/api/data":
-            with open(data_file(), "r", encoding="utf-8") as f:
-                doc = json.load(f)
+            # On Windows, opening the target while another request replaces it
+            # can fail with a sharing violation. Use the same sidecar lock as
+            # PUT/restore so readers observe a complete document consistently.
+            doc = read_data()
             etag = document_etag(doc)
             try:
                 doc = invest_bridge.inject_live_rows(doc)
@@ -1052,6 +1064,11 @@ class FFServer(ThreadingHTTPServer):
     # same port silently, so you'd land on another app's page. Exclusive binding
     # makes a real conflict error we can catch and step past.
     allow_reuse_address = False
+    # ThreadingHTTPServer defaults to a listen backlog of five. A short burst of
+    # local browser/API requests can exceed that before the accept loop drains it,
+    # causing clients to see connection resets even though handler threads are
+    # available. Keep enough queued connections for the app's concurrent writers.
+    request_queue_size = 64
 
     def handle_error(self, request, client_address):
         """A client that navigates away / closes the tab mid-response aborts the
