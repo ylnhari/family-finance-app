@@ -179,6 +179,10 @@ label.fld span{display:block;margin-bottom:4px}
 .pay-card .pc-actions .icon-btn:hover{background:rgba(255,255,255,.2);color:#fff}
 .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
 .filter-bar select,.filter-bar input{width:auto;min-width:120px}
+.expense-search-panel{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.expense-search-panel label{display:flex;flex-direction:column;gap:3px}
+.expense-search-controls{display:flex;gap:8px;align-items:center;flex:1;min-width:min(100%,280px)}
+.expense-search-controls input{min-height:40px;flex:1;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
 
 /* ---------- documents ---------- */
 .doc-row{display:flex;align-items:center;gap:12px;padding:10px 6px;border-bottom:1px solid var(--line)}

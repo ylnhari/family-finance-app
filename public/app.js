@@ -1313,6 +1313,18 @@ function groupDim(g) {
   return (meta[g] && meta[g].dim) || "none";
 }
 const DIM_LABEL = { location: "Location", person: "Person", none: "" };
+let expenseSearchQuery = "";
+function setExpenseSearch(value, selectionStart = String(value || "").length) {
+  expenseSearchQuery = String(value || "");
+  Object.keys(_pageLimits).filter(key => key.startsWith("expenses:") || key.startsWith("external-help:"))
+    .forEach(key => delete _pageLimits[key]);
+  render();
+  const input = el("#expenseSearch");
+  if (input) {
+    input.focus();
+    input.setSelectionRange(selectionStart, selectionStart);
+  }
+}
 PAGES.expenses = () => {
   const groups = {};
   const helpGroups = {};
@@ -1403,17 +1415,19 @@ PAGES.expenses = () => {
   const helpDetails = Object.entries(helpGroups).map(([g, items]) => {
     const dim = groupDim(g);
     const colspan = dim === "none" ? 3 : 4;
-    const paged = pagedRows(`external-help:${g}`, items, ([e, i]) => `
+    const visibleItems = items.filter(([entry]) => expenseMatchesQuery(entry, g, expenseSearchQuery));
+    const paged = pagedRows(`external-help:${g}`, visibleItems, ([e, i]) => `
         <tr><td>${esc(e.category)}</td>${dim !== "none" ? `<td class="muted">${esc((dim === "location" ? e.location : e.person) || "—")}</td>` : ""}
         <td class="num"><input class="inline-input" value="${num(e.amount)}" onchange="updExpense(${i},this.value)"></td>
         <td><button class="icon-btn" title="Edit" onclick="editExpense(${i})">✎</button>
             <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`);
     return `<div class="help-source"><h3>${esc(g)} <span class="chip green">${fmtMoney(items.reduce((s, [e]) => s + Math.max(0, num(e.amount)), 0))}</span>
+      <span class="small muted">${visibleItems.length} of ${items.length} entries</span>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
         <button class="btn small ghost" title="Section settings" onclick="editExpenseSection('${esc(g)}')">⚙</button>
         <button class="btn small secondary" onclick="addExpense('${esc(g)}')">+ Add</button></span></h3>
       <div class="table-wrap"><table><thead><tr><th>Category</th>${dim !== "none" ? `<th>${DIM_LABEL[dim]}</th>` : ""}<th class="num">Potential Help</th><th></th></tr></thead>
-      <tbody>${paged.html || `<tr><td colspan="${colspan}" class="muted">No help entries yet — click + Add.</td></tr>`}</tbody></table></div>${paged.footer}
+      <tbody>${paged.html || `<tr><td colspan="${colspan}" class="muted">${items.length ? `No entries match “${esc(expenseSearchQuery)}”. <button class="btn ghost small" onclick="setExpenseSearch('')">Clear search</button>` : "No help entries yet — click + Add."}</td></tr>`}</tbody></table></div>${paged.footer}
     </div>`;
   }).join("");
   const comparisonCard = externalHelpComparisonCard(withHelp,
@@ -1453,23 +1467,27 @@ PAGES.expenses = () => {
     `Recurring spend: <b>${fmtMoney(total)}</b> &nbsp;·&nbsp; + loan EMIs ${fmtMoney(emiTotal)} &nbsp;·&nbsp; + in-hand investments ${fmtMoney(invTotal)} &nbsp;=&nbsp; <b>${fmtMoney(total + emiTotal + invTotal)}</b> total outflow`,
     `<button class="btn" onclick="addExpense()">+ Add Expense</button>
      <button class="btn secondary" onclick="addExpenseSection()">+ Add Section</button>`) +
+    `<div class="panel expense-search-panel"><label for="expenseSearch"><b>Find an expense or help entry</b><span class="small muted">Searches category, section, location and person. Summary totals keep using all entries.</span></label><div class="expense-search-controls"><input id="expenseSearch" type="search" value="${esc(expenseSearchQuery)}" placeholder="e.g. groceries, rent, location" oninput="setExpenseSearch(this.value,this.selectionStart)"><button class="btn ghost" type="button" onclick="setExpenseSearch('')" ${expenseSearchQuery ? "" : "disabled"}>Clear</button></div></div>` +
     analytics + comparisonCard +
     (Object.entries(groups).map(([g, items]) => {
       const sub = items.reduce((s, [e]) => s + num(e.amount), 0);
       const dim = groupDim(g);
-      const paged = pagedRows(`expenses:${g}`, items, ([e, i]) => `
+      const colspan = dim === "none" ? 3 : 4;
+      const visibleItems = items.filter(([entry]) => expenseMatchesQuery(entry, g, expenseSearchQuery));
+      const paged = pagedRows(`expenses:${g}`, visibleItems, ([e, i]) => `
           <tr><td>${esc(e.category)}</td>${dim !== "none" ? `<td class="muted">${esc((dim === "location" ? e.location : e.person) || "—")}</td>` : ""}
           <td class="num"><input class="inline-input" value="${num(e.amount)}" onchange="updExpense(${i},this.value)"></td>
           <td><button class="icon-btn" title="Edit" onclick="editExpense(${i})">✎</button>
               <button class="icon-btn danger" title="Delete" onclick="delExpense(${i})">✕</button></td></tr>`);
       return `<div class="panel"><h2>${esc(g)} <span class="chip">${fmtMoney(sub)}</span>
+        <span class="small muted">${visibleItems.length} of ${items.length} entries</span>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
           <span class="chip gray" title="What each entry tracks besides category">${dim === "none" ? "category only" : "by " + dim}</span>
           <button class="btn small ghost" title="Section settings" onclick="editExpenseSection('${esc(g)}')">⚙</button>
           <button class="btn small secondary" onclick="addExpense('${esc(g)}')">+ Add</button></span></h2>
       <div class="table-wrap"><table>
         <thead><tr><th>Category</th>${dim !== "none" ? `<th>${DIM_LABEL[dim]}</th>` : ""}<th class="num">Monthly Cost</th><th style="width:70px"></th></tr></thead>
-        <tbody>${paged.html || `<tr><td colspan="4" class="muted">No entries yet — click + Add.</td></tr>`}
+        <tbody>${paged.html || `<tr><td colspan="${colspan}" class="muted">${items.length ? `No entries match “${esc(expenseSearchQuery)}”. <button class="btn ghost small" onclick="setExpenseSearch('')">Clear search</button>` : "No entries yet — click + Add."}</td></tr>`}
         </tbody></table></div>${paged.footer}</div>`;
     }).join("") || '<div class="panel"><div class="empty">No expenses yet.</div></div>');
 };

@@ -19,7 +19,9 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from email.message import Message
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -59,10 +61,13 @@ def _put_data(url, body, etag=None):
     return _req("PUT", url, body, headers={"If-Match": etag or _data_etag(url)})
 
 
-def _raw(method, url, body=None, ctype="application/octet-stream"):
+def _raw(method, url, body=None, ctype="application/octet-stream", headers=None):
     """Request returning (status, raw_bytes, content_type) — for non-JSON responses."""
+    request_headers = dict(headers or {})
+    if body:
+        request_headers.setdefault("Content-Type", ctype)
     r = urllib.request.Request(url, data=body, method=method,
-                               headers={"Content-Type": ctype} if body else {})
+                               headers=request_headers)
     try:
         with urllib.request.urlopen(r, timeout=10) as resp:
             return resp.status, resp.read(), resp.headers.get("Content-Type", "")
@@ -325,6 +330,12 @@ class ServerTests(unittest.TestCase):
         self.assertIn(b"function loanState", body)
         self.assertIn("javascript", ctype)
 
+    def test_serves_expense_filter_helpers(self):
+        st, body, ctype = _raw("GET", self.base + "/filter-utils.js")
+        self.assertEqual(st, 200)
+        self.assertIn(b"function expenseMatchesQuery", body)
+        self.assertIn("javascript", ctype)
+
     def test_shared_theme_controller_wired_into_both_pages(self):
         # D11: one theme source of truth — theme.js served + referenced by both pages
         st, body, ctype = _raw("GET", self.base + "/theme.js")
@@ -370,6 +381,105 @@ class ServerTests(unittest.TestCase):
         st, body, _ = _raw("GET", self.base + "/files/..%2f..%2ffinances.json")
         self.assertIn(st, (400, 403, 404))
         self.assertNotIn(b"schemaVersion", body)
+
+    def test_host_gate_requires_exact_loopback_authority_for_get_and_head(self):
+        port = str(self.port)
+        st, _, _ = _raw("GET", self.base + "/api/data", headers={"Host": "attacker.invalid:" + port})
+        self.assertEqual(st, 403)
+        st, _, _ = _raw("GET", self.base + "/api/data", headers={"Host": "127.0.0.1:bad"})
+        self.assertEqual(st, 403)
+        st, body, _ = _raw("GET", self.base + "/api/data", headers={"Host": "localhost:" + port})
+        self.assertEqual(st, 200)
+        st, body, _ = _raw("HEAD", self.base + "/api/data", headers={"Host": "127.0.0.1:" + port})
+        self.assertEqual(st, 405)
+        self.assertEqual(body, b"")
+
+    def test_cross_origin_and_non_same_origin_fetch_metadata_cannot_mutate(self):
+        url = self.base + "/api/data"
+        original_etag = _data_etag(url)
+        replacement = {"settings": {}, "loans": [], "marker": "blocked"}
+        for headers in (
+                {"Origin": "https://attacker.invalid"},
+                {"Origin": "null"},
+                {"Origin": "http://user@127.0.0.1:" + str(self.port)},
+                {"Sec-Fetch-Site": "cross-site"},
+                {"Sec-Fetch-Site": "same-site"}):
+            st, _ = _req("PUT", url, replacement,
+                         headers={"If-Match": original_etag, **headers})
+            self.assertEqual(st, 403, headers)
+        st, data = _req("GET", url)
+        self.assertNotEqual(data.get("marker"), "blocked")
+        self.assertEqual(_data_etag(url), original_etag)
+
+        # Provider actions are rejected at the boundary before key/provider checks.
+        st, _ = _req("POST", self.base + "/api/fetch-gold-price", {},
+                     headers={"Origin": "https://attacker.invalid"})
+        self.assertEqual(st, 403)
+
+    def test_same_origin_and_rover_proxy_contract_are_accepted(self):
+        url = self.base + "/api/data"
+        etag = _data_etag(url)
+        st, _ = _req("PUT", url, {"settings": {}, "loans": [], "marker": "same-origin"},
+                     headers={"If-Match": etag, "Origin": self.base})
+        self.assertEqual(st, 200)
+
+        # Rover rewrites Host, strips Origin, preserves Fetch Metadata. Forwarded
+        # headers are deliberately ignored and do not define the request origin.
+        st, body = _req("POST", self.base + "/api/backup", {}, headers={
+            "Sec-Fetch-Site": "same-origin",
+            "Referer": "https://gateway.example/session/",
+            "X-Forwarded-Host": "attacker.invalid",
+            "X-Forwarded-Proto": "https",
+        })
+        self.assertEqual(st, 200)
+        self.assertTrue(body.get("name"))
+
+    def test_head_wrong_host_is_rejected(self):
+        st, body, _ = _raw("HEAD", self.base + "/api/data", headers={"Host": "attacker.invalid"})
+        self.assertEqual(st, 403)
+        self.assertEqual(body, b"")
+
+    def test_default_port_and_malformed_authorities_without_binding_port_80(self):
+        import server as finance_server
+
+        def handler_for(host, origin=None):
+            headers = Message()
+            headers["Host"] = host
+            if origin is not None:
+                headers["Origin"] = origin
+            handler = SimpleNamespace(headers=headers, server=SimpleNamespace(server_port=80))
+            handler._loopback_authority = lambda: finance_server.Handler._loopback_authority(handler)
+            return handler
+
+        for host in ("localhost", "localhost:80", "127.0.0.1:80"):
+            handler = handler_for(host)
+            self.assertIsNotNone(finance_server.Handler._loopback_authority(handler), host)
+        for host in ("localhost:", "localhost:bad", "localhost:81", "user@localhost:80"):
+            handler = handler_for(host)
+            self.assertIsNone(finance_server.Handler._loopback_authority(handler), host)
+
+        self.assertTrue(finance_server.Handler._same_origin_write(handler_for("localhost", "http://localhost")))
+        self.assertFalse(finance_server.Handler._same_origin_write(handler_for("localhost", "http://localhost:")))
+
+    def test_rejected_body_drain_observes_total_deadline(self):
+        sock = socket.create_connection(("127.0.0.1", self.port), timeout=3)
+        sock.settimeout(3)
+        started = time.monotonic()
+        try:
+            sock.sendall((
+                "POST /api/backup HTTP/1.1\r\n"
+                "Host: 127.0.0.1:%d\r\n" % self.port
+                + "Origin: https://attacker.invalid\r\n"
+                + "Content-Length: 10\r\n\r\n"
+                + "x"
+            ).encode("ascii"))
+            response = sock.recv(4096)
+        finally:
+            sock.close()
+        elapsed = time.monotonic() - started
+        self.assertTrue(response.startswith(b"HTTP/1.0 403"), response[:100])
+        self.assertGreaterEqual(elapsed, 0.4)
+        self.assertLess(elapsed, 2.0)
 
     def test_unknown_api_route_404(self):
         st, body = _req("GET", self.base + "/api/does-not-exist")
@@ -500,6 +610,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(st, 200)
         page = body.decode("utf-8")
         self.assertIn('src="finance-math.js"', page)
+        self.assertIn('src="filter-utils.js"', page)
         self.assertIn('src="app.js"', page)
 
     def test_invest_page_has_manual_holdings_editor(self):

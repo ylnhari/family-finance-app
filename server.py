@@ -677,7 +677,8 @@ class Handler(BaseHTTPRequestHandler):
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _err(self, code, msg):
         self._send(code, {"error": msg})
@@ -687,6 +688,104 @@ class Handler(BaseHTTPRequestHandler):
         if length > 200 * 1024 * 1024:
             raise ValueError("Payload too large (max 200 MB)")
         return self.rfile.read(length)
+
+    def _loopback_authority(self):
+        """Return the exact local authority for this server, or None."""
+        values = self.headers.get_all("Host", [])
+        if len(values) != 1:
+            return None
+        try:
+            parts = urlparse("//" + values[0])
+            name = (parts.hostname or "").lower()
+            port = parts.port if parts.port is not None else 80
+        except ValueError:
+            return None
+        if (parts.username is not None or parts.password is not None
+                or parts.netloc.endswith(":") or parts.path or parts.query
+                or parts.fragment or name not in {"localhost", "127.0.0.1"}
+                or port != self.server.server_port):
+            return None
+        return name, port
+
+    def _require_loopback_host(self):
+        if self._loopback_authority() is not None:
+            return True
+        self.close_connection = True
+        self._send(403, {"error": "Host must match this loopback server"},
+                   extra={"Connection": "close"})
+        return False
+
+    def _same_origin_write(self):
+        """Allow same-origin browser calls and headerless local API clients."""
+        authority = self._loopback_authority()
+        if authority is None:
+            return False
+        host_name, host_port = authority
+
+        sites = self.headers.get_all("Sec-Fetch-Site", [])
+        if len(sites) > 1 or (sites and sites[0].strip().lower() != "same-origin"):
+            return False
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            return False
+        if not origins:
+            # Local CLI and Rover's authenticated proxy both omit Origin. Rover
+            # rewrites Host to loopback and retains same-origin Fetch Metadata.
+            return True
+        try:
+            parts = urlparse(origins[0])
+            name = (parts.hostname or "").lower()
+            port = parts.port if parts.port is not None else 80
+        except ValueError:
+            return False
+        return (parts.scheme == "http" and parts.username is None and parts.password is None
+                and not parts.netloc.endswith(":")
+                and name == host_name and port == host_port and not parts.path
+                and not parts.query and not parts.fragment)
+
+    def _discard_rejected_body(self):
+        """Drain a small rejected request body within a total time budget."""
+        lengths = self.headers.get_all("Content-Length", [])
+        if self.headers.get("Transfer-Encoding") or len(lengths) > 1:
+            self.close_connection = True
+            return
+        try:
+            length = int(lengths[0]) if lengths else 0
+        except ValueError:
+            self.close_connection = True
+            return
+        if length <= 0 or length > 200 * 1024 * 1024:
+            self.close_connection = True
+            return
+
+        old_timeout = self.connection.gettimeout()
+        deadline = time.monotonic() + 0.5
+        remaining = length
+        try:
+            while remaining:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    self.close_connection = True
+                    return
+                self.connection.settimeout(timeout)
+                chunk = self.rfile.read1(min(remaining, 64 * 1024))
+                if not chunk:
+                    self.close_connection = True
+                    return
+                remaining -= len(chunk)
+        except (OSError, socket.timeout):
+            self.close_connection = True
+        finally:
+            self.connection.settimeout(old_timeout)
+
+    def _require_same_origin_write(self):
+        if self._same_origin_write():
+            return True
+        self._discard_rejected_body()
+        self.close_connection = True
+        self._send(403, {"error": "Cross-origin request rejected"},
+                   extra={"Connection": "close"})
+        return False
 
     def log_message(self, fmt, *args):
         pass  # keep the console quiet
@@ -704,6 +803,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, payload)
 
     def do_GET(self):
+        if not self._require_loopback_host():
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/invest":
@@ -762,6 +863,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err(403, "Forbidden")
             self._serve_file(fp)
 
+    def do_HEAD(self):
+        if not self._require_loopback_host():
+            return
+        self._send(405, {"error": "Method not allowed"},
+                   extra={"Allow": "GET, PUT, POST, DELETE"})
+
     def _serve_doc(self, name):
         """Serve docs/<name>.md read-only (BROKER-SETUP.md, NOTIFICATIONS.md — linked
         from the /invest onboarding panel so those links work offline). Same
@@ -794,6 +901,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, body, ctype, extra)
 
     def do_PUT(self):
+        if not self._require_same_origin_write():
+            return
         path = urlparse(self.path).path
         if path != "/api/data":
             return self._err(404, "Not found")
@@ -832,6 +941,8 @@ class Handler(BaseHTTPRequestHandler):
                    extra={"ETag": document_etag(data)})
 
     def do_POST(self):
+        if not self._require_same_origin_write():
+            return
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/invest/"):
             return self._invest(invest_api.handle_post(parsed.path, self._body()))
@@ -914,6 +1025,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "name": final, "size": len(body)})
 
     def do_DELETE(self):
+        if not self._require_same_origin_write():
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         if path.startswith("/api/invest/"):

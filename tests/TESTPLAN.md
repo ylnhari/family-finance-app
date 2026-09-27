@@ -7,8 +7,8 @@ Regression suite. Run after **every** change; if it's green, core behaviour is i
 ```
 
 No frameworks, no installs. Pure math runs under Node's built-in runner; server/API/CLI
-under Python's `unittest`. **Total: 257 cases** (210 Python + 47 Node) — see "FINAL counts"
-at the bottom for the exact per-file breakdown from an actual run.
+under Python's `unittest`. **Current verified total: 285 cases** (231 Python + 54 Node;
+2026-09-27). The baseline per-file breakdown below is retained from 2026-08-10.
 
 ## Strategy (pyramid)
 
@@ -33,6 +33,7 @@ and math regressions.
 
 | Area | Type | File | Key cases |
 |---|---|---|---|
+| Expense entry search | unit | `filter.test.js` | case-insensitive multi-word matching across section, category, location and person; blank and missing-field handling |
 | EMI / amortization | unit | `math.test.js` | standard formula, zero-interest, payoff to zero, diverging-loan guard |
 | Loan prepayment | unit | `math.test.js` | tenure-mode shortens loan, emi-mode lowers EMI, overpay closes loan, elapsed-time balance |
 | Income totals | unit | `math.test.js` | gross/ctc/in-hand split, variable earned-vs-eligible, bonus excluded from in-hand, empty year |
@@ -176,7 +177,7 @@ Every new feature ships with **both** test coverage and demo data:
 
 A change is not "done" until `./test.sh` is green AND the feature shows up in the demo dataset.
 
-## FINAL counts (from an actual run — 2026-08-10)
+## FINAL counts (baseline run — 2026-08-10)
 
 ```
 python -m unittest discover -s tests -p "test_*.py"
@@ -196,15 +197,24 @@ Python breakdown (`python -m unittest tests.<module> -v`):
 | `test_investlib.py` | 75 | investlib business logic and market-calendar behavior |
 | `test_no_extras.py` | 1 | optional live-sync extras forced absent |
 | `test_portlib.py` | 20 | shared port-resolution contract |
-| `test_server.py` | 76 | finance and investments HTTP behavior |
-| **Python total** | **210** | |
+| `test_server.py` | 82 | finance and investments HTTP behavior |
+| **Python total** | **216** | |
 
-Node breakdown: `math.test.js` 33 + `sample.test.js` 14 = **47**.
+Node breakdown at baseline: `math.test.js` 33 + `sample.test.js` 14 = **47**. The current
+suite also includes `filter.test.js` for expense search; rerun `test.sh` for current counts.
 
-**Grand total: 257 cases**, all green. No test in the suite touches real `data/`,
+**Baseline grand total: 257 cases**, all green. No test in the suite touches real `data/`,
 `imports/`, `.env`, or a live broker/NSE network — every network-shaped call is mocked
 (`investlib.brokers` functions, `requests`) or, for OAuth/sync HTTP tests specifically,
 exercised against an **in-process** server boot (`test_server.py::_boot_inprocess_server`)
 so `unittest.mock.patch.object` can actually intercept the call — subprocess-booted
 servers (used everywhere else in `test_server.py`) can't be mocked from the parent test
 process.
+
+## Current verification (2026-09-27)
+
+`test.bat` ran 237 Python tests and 54 Node tests successfully. Python coverage includes
+synthetic Host/Origin/Fetch Metadata rejection, same-origin and Rover proxy compatibility,
+default-port parsing without binding port 80, and a bounded rejected-body drain. The search
+helper static route and pure matching cases are covered. No finance browser-rendering harness
+is installed in this project, so no rendered browser smoke check was performed.
