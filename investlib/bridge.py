@@ -11,7 +11,7 @@ every PUT before anything is saved (see server.py).
 import re
 from datetime import date, datetime
 
-from . import store
+from . import portfolio, store
 
 # A broker-API snapshot older than this many days is "stale": the nightly sync is
 # failing or not running. 4 days covers a normal long weekend of closed markets.
@@ -31,22 +31,14 @@ ASSET_CLASS_SUBCATEGORY = {
 
 
 def account_totals(holdings_by_account: dict) -> dict:
-    """Per account: {invested: Σ qty*avg_price, current: Σ (value or qty*last_price)}."""
+    """Per account: {invested, current}. One shared rule (portfolio.position_totals):
+    a holding with no known cost basis is carried at its current value, so it stays in
+    the total but cannot inflate the Portfolio page's return."""
     totals = {}
     for account_id, snapshot in (holdings_by_account or {}).items():
         rows = snapshot.get("rows", []) if isinstance(snapshot, dict) else []
-        invested = 0.0
-        current = 0.0
-        for row in rows:
-            qty = row.get("quantity") or 0
-            avg = row.get("avg_price") or 0
-            last = row.get("last_price") or 0
-            # Wint Wealth bond rows carry total_invested instead of avg_price
-            row_invested = row.get("total_invested")
-            invested += row_invested if row_invested is not None else qty * avg
-            value = row.get("value")
-            current += value if value is not None else qty * last
-        totals[account_id] = {"invested": round(invested, 2), "current": round(current, 2)}
+        t = portfolio.position_totals(rows)
+        totals[account_id] = {"invested": t["invested"], "current": t["current"]}
     return totals
 
 
@@ -56,6 +48,16 @@ def _day(text):
         return date.fromisoformat(str(text)[:10])
     except (TypeError, ValueError):
         return None
+
+
+def is_api_source(source) -> bool:
+    """True when a holdings source names a broker API (it refreshes itself)."""
+    return bool(_API_SOURCE_RE.search(str(source or "")))
+
+
+def stale_after_days(source) -> int:
+    """Days after which a snapshot from this source counts as stale."""
+    return API_STALE_DAYS if is_api_source(source) else IMPORT_STALE_DAYS
 
 
 def snapshot_age_days(as_of, now_iso):
@@ -88,7 +90,7 @@ def live_rows(accounts: list, holdings_by_account: dict, now_iso: str) -> list:
         source = snapshot.get("source", "")
         as_of = snapshot.get("as_of", "")
         age_days = snapshot_age_days(as_of, now_iso)
-        limit = API_STALE_DAYS if _API_SOURCE_RE.search(str(source)) else IMPORT_STALE_DAYS
+        limit = stale_after_days(source)
         rows.append({
             "id": f"live-{account_id}",
             "liveSync": True,

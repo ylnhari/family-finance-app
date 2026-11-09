@@ -24,7 +24,7 @@ invest_cli.py           # CLI: import / ipo / wint subcommands (holdings CSV, IP
 daily_brief.py          # Optional: daily portfolio/IPO summary pushed to phone via ntfy.sh
 refresh_tokens.py       # Optional: unattended morning broker token refresh (TOTP 2FA)
 investlib/              # Investments package: brokers.py, analysis.py, ipo.py, ipo_fetch.py,
-                       #   ipo_history.py, portfolio.py, store.py, wintwealth.py, xlsx_lite.py
+                       #   ipo_history.py, overview.py, portfolio.py, store.py, wintwealth.py, xlsx_lite.py
 requirements-invest.txt # OPTIONAL extras (kiteconnect, upstox-python-sdk, requests, pyotp) —
                        #   only for live broker/NSE/IPO network sync; nothing else needs them
 public/

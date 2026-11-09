@@ -47,6 +47,53 @@ def _to_float(raw) -> float:
         return 0.0
 
 
+def row_value(row: dict) -> float:
+    """Current value of one holdings row: the stored value, else quantity x last price."""
+    value = row.get("value")
+    if value is not None:
+        return float(value)
+    return float(row.get("quantity") or 0) * float(row.get("last_price") or 0)
+
+
+def cost_basis(row: dict):
+    """What was paid for a holdings row, or None when the source gave no cost.
+
+    Bond rows carry total_invested (Wint Wealth); everything else is quantity x average
+    price. A position with a quantity but no average price (a bonus or transferred-in
+    holding) has an UNKNOWN basis: counting it as "invested 0" would book its whole value
+    as profit."""
+    total = row.get("total_invested")
+    if total is not None:
+        return float(total)
+    quantity = float(row.get("quantity") or 0)
+    average = float(row.get("avg_price") or 0)
+    if quantity > 0 and average > 0:
+        return quantity * average
+    return None
+
+
+def position_totals(rows) -> dict:
+    """{current, invested, gain, unpriced} for a list of holdings rows.
+
+    Rows with no known cost basis are carried at their current value (zero gain): they
+    stay in the total but never inflate the gain, and `unpriced` says how many there were.
+    Every page that shows invested/gain uses this one rule so they cannot disagree."""
+    current = invested = 0.0
+    unpriced = 0
+    for row in rows or []:
+        value = row_value(row)
+        basis = cost_basis(row)
+        current += value
+        if basis is None:
+            invested += value
+            if value:
+                unpriced += 1
+        else:
+            invested += basis
+    return {"current": round(current, 2), "invested": round(invested, 2),
+            "gain": round(current - invested, 2), "unpriced": unpriced}
+
+
 def parse_holdings_csv(path: Path) -> list:
     """Return [{symbol, isin, quantity, avg_price, last_price, value, pnl_pct}]."""
     with open(path, newline="", encoding="utf-8-sig") as f:

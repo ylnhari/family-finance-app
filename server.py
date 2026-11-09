@@ -438,6 +438,16 @@ def ensure_demo_invest_data():
         {"symbol": "DemoInfra NCD 11.0% 2027", "isin": "INE000DEMO01",
          "quantity": 10, "avg_price": 10000, "last_price": 10000},
     ])
+    # No owner on purpose: the dashboard's "Unassigned" card and "account without an owner"
+    # cue (such an account is missing from the Portfolio page) are then visible in the demo.
+    invest_store.create_account("manual-1", "manual", label="Savings basket — demo")
+    invest_portfolio.set_manual_holdings("manual-1", [
+        {"symbol": "DEMOLIQUID", "quantity": 100, "avg_price": 100, "last_price": 101},
+    ])
+    # An old statement import (40 days), so the "out of date" cues are demoable too.
+    demo_holdings = invest_store.load("holdings", default={})
+    demo_holdings["wint-1"]["as_of"] = (date.today() - timedelta(days=40)).isoformat()
+    invest_store.save("holdings", demo_holdings)
     # Close date is seeded relative to now (~2 weeks out) so the demo IPO always
     # reads as a realistic "14d left", never a fixed far-future "26461d left".
     demo_ipo_close = (date.today() + timedelta(days=14)).isoformat()

@@ -9,6 +9,7 @@ merged from; the web UI for these routes is public/invest.html (served at
     None                        – not an invest route, caller 404s
 
 GET  /api/invest/summary          totals per account / asset class
+GET  /api/invest/overview         front page in one call: total, people, accounts, attention
 GET  /api/invest/signals          flagged positions (buy/sell/keep review list)
 GET  /api/invest/bonds            bond positions with maturity/cashflow detail
 GET  /api/invest/ipos             tracked IPOs with apply/skip calls (?closed=1)
@@ -40,7 +41,7 @@ GET  /auth/<kite|upstox>/<account>/callback   token exchange + sync, then back t
 import json
 
 import config
-from investlib import analysis, brokers, ipo, ipo_fetch, ipo_history, portfolio, store
+from investlib import analysis, brokers, ipo, ipo_fetch, ipo_history, overview, portfolio, store
 
 API_PREFIX = "/api/invest"
 
@@ -79,6 +80,8 @@ def handle_get(path: str, query: dict):
     try:
         if route == "/summary":
             return ("json", 200, analysis.summary())
+        if route == "/overview":
+            return ("json", 200, overview.build())
         if route == "/signals":
             return ("json", 200, analysis.signals())
         if route == "/bonds":

@@ -139,8 +139,19 @@ in `test_server.py`; the CLI process (`invest_cli.py`) is exercised end-to-end i
     flips the main app's theme (shared `ffa_theme` key) and vice versa.
 12. **Investments — CLI**: `python invest_cli.py summary`, `ipo list`, and an `import`/`wint`
     against a real file in `imports/` all print sane output with no traceback.
-13. `python server.py --demo` → `/invest` shows 3 fake accounts (Arjun/Priya/Rohan —
-    never a real name) with holdings and one demo IPO.
+13. `python server.py --demo` → `/invest` shows 4 fake accounts (Arjun/Priya/Rohan —
+    never a real name — plus one with no owner) with holdings and one demo IPO.
+14. **Investments — front page** (`--demo`): the page opens on total value, Invested and Total
+    gain, then "Needs your attention" (IPO to decide, flagged position, the 40-day-old bond
+    statement, the account with no owner), "By person" cards (Priya, Arjun, Rohan, Unassigned)
+    and the Accounts table. Selecting a person card filters the table, selecting it again
+    clears it. IPOs / Bonds / Flagged / Data and sync are collapsed with a one-line summary;
+    clicking an attention chip opens its section; the open/closed choice survives a reload.
+    The 👁 toggle masks every amount and gain %. Check a phone width (about 390 px): chips wrap
+    inside their card and the Accounts table scrolls sideways instead of overflowing the page.
+15. **Investments — out-of-date cues** (real data): an account whose broker sync fails shows
+    "sync failing" in Data and sync and in the Accounts table; a stale snapshot shows "Nd old"
+    there, in the attention strip, and as an amber badge on the Portfolio page.
 
 ## Coverage targets
 

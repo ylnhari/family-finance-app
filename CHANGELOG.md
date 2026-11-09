@@ -9,6 +9,18 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Investments dashboard (`/invest`) leads with answers, not data sources.** The page used to open on
+  broker sync and three IPO lists, with per-account values about 18,000 px down. It now shows total
+  value, invested and gain, a "Needs your attention" strip, a card per person (select one to filter), and
+  an Accounts table (value, invested, gain, data age) first. IPOs, bonds, flagged positions and
+  broker sync / account management are collapsed sections with one-line summaries; their content and
+  controls are unchanged, and the open/closed choice is remembered. Powered by the new
+  `GET /api/invest/overview` (`investlib/overview.py`).
+- **Invested and gain now use one rule everywhere** (`portfolio.position_totals`). A holding with a
+  quantity but no known cost basis (a bonus or transferred-in position) is carried at its current value,
+  so it no longer inflates the Portfolio page's return; the dashboard footnotes how many there are.
+
 ### Fixed
 - **Portfolio live rows no longer claim to be freshly updated.** `investlib/bridge.py` stamped
   every synced row `lastSynced = now`, so a snapshot that had not refreshed for weeks still read

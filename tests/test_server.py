@@ -892,6 +892,35 @@ class DemoModeTests(unittest.TestCase):
         self.assertEqual(kite["lastSynced"], time.strftime("%Y-%m-%d"))
         self.assertFalse(kite["stale"])
 
+    def test_demo_overview_shows_people_unassigned_and_out_of_date_cues(self):
+        """The dashboard front page (GET /api/invest/overview): whose money, what needs a look.
+        The demo is seeded so every cue is visible: three owners, one account with no owner,
+        a 40-day-old statement import and one open IPO."""
+        st, ov = _req("GET", self.base + "/api/invest/overview")
+        self.assertEqual(st, 200)
+        owners = [p["owner"] for p in ov["people"]]
+        self.assertEqual(sorted(o for o in owners if o), ["Arjun", "Priya", "Rohan"])
+        self.assertEqual(owners[-1], "", "money with no owner is listed last, as Unassigned")
+        st, summary = _req("GET", self.base + "/api/invest/summary")
+        self.assertAlmostEqual(ov["total"]["value"], summary["total"], places=2)
+        self.assertAlmostEqual(sum(p["value"] for p in ov["people"]), ov["total"]["value"], places=2)
+        att = ov["attention"]
+        self.assertEqual([s["account"] for s in att["stale"]], ["wint-1"])
+        self.assertEqual([u["account"] for u in att["unassigned"]], ["manual-1"])
+        self.assertEqual(att["ipos"]["to_decide"], 1)
+        self.assertEqual(att["sync_failing"], [])
+
+    def test_invest_page_has_the_front_page_sections_and_keeps_the_management_ui(self):
+        with urllib.request.urlopen(self.base + "/invest") as resp:
+            html = resp.read().decode("utf-8")
+        for needle in ('id="attention"', 'id="people"', 'id="acct-overview"', 'id="valueHero"',
+                       'id="fold-ipos"', 'id="fold-bonds"', 'id="fold-flagged"', 'id="fold-data"',
+                       'id="add-account-section"', 'id="tokens"', 'id="accounts"'):
+            self.assertIn(needle, html)
+        # long reference sections are collapsed by default (no `open` attribute in the markup)
+        for fold in ("fold-ipos", "fold-bonds", "fold-flagged", "fold-data"):
+            self.assertRegex(html, r'<details class="fold" id="%s">' % fold)
+
     def test_demo_invest_files_stay_in_sandbox(self):
         invest_dir = os.path.join(self.tmp, "invest")
         self.assertTrue(os.path.isfile(os.path.join(invest_dir, "holdings.json")))

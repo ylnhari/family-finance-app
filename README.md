@@ -114,6 +114,12 @@ broker statement (CSV/xlsx), or track a holding manually. Pick whichever fits; y
 all three across different accounts. See [`docs/BROKER-SETUP.md`](docs/BROKER-SETUP.md)
 for the full broker-connection walkthrough.
 
+- **Answers first, detail on demand.** The front page leads with the total value, what was
+  invested and the gain, then a **Needs your attention** strip (IPOs to decide, bond payouts,
+  flagged positions, accounts whose data is out of date or whose sync is failing, accounts with
+  no owner), a **By person** card per owner (select one to filter), and an **Accounts** table of
+  value, invested, gain and data age. IPOs, bonds, flagged positions and broker sync / account
+  management sit below as collapsed sections, each with a one-line summary.
 - **Consolidated holdings** across brokers: Zerodha Kite (multiple accounts), Upstox,
   Coin mutual funds, Wint Wealth bonds (multiple accounts), smallcase — one net-worth
   view instead of five broker apps.

@@ -61,6 +61,7 @@ MODULES = [
     "investlib.ipo",
     "investlib.ipo_fetch",
     "investlib.ipo_history",
+    "investlib.overview",
     "investlib.portfolio",
     "investlib.store",
     "investlib.wintwealth",

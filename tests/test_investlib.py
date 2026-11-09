@@ -1600,5 +1600,235 @@ class TestSyncEndpointExplainsFailures(TempDataMixin):
         self.assertEqual(status, 400)
 
 
+class TestPositionTotals(unittest.TestCase):
+    """One rule for invested/gain, shared by the Portfolio bridge and the dashboard."""
+
+    def test_cost_basis_rules(self):
+        from investlib import portfolio
+        self.assertEqual(portfolio.cost_basis({"quantity": 10, "avg_price": 5}), 50.0)
+        self.assertEqual(portfolio.cost_basis({"total_invested": 20000, "quantity": 2}), 20000.0)  # Wint bond lot
+        self.assertIsNone(portfolio.cost_basis({"quantity": 10, "avg_price": 0}))                  # bonus/transfer-in
+        self.assertIsNone(portfolio.cost_basis({"quantity": 0, "avg_price": 5}))
+        self.assertIsNone(portfolio.cost_basis({}))
+
+    def test_unknown_cost_basis_is_carried_at_value_not_booked_as_profit(self):
+        from investlib import portfolio
+        rows = [
+            {"symbol": "A", "quantity": 10, "avg_price": 100, "value": 1200},     # paid 1000, now 1200
+            {"symbol": "B", "quantity": 4, "avg_price": 0, "value": 800},         # cost unknown
+        ]
+        t = portfolio.position_totals(rows)
+        self.assertEqual(t["current"], 2000.0)
+        self.assertEqual(t["invested"], 1800.0)   # 1000 + 800 carried at value
+        self.assertEqual(t["gain"], 200.0)        # only the priced row's gain; B adds nothing
+        self.assertEqual(t["unpriced"], 1)
+
+    def test_zero_value_rows_are_not_counted_as_unpriced(self):
+        from investlib import portfolio
+        t = portfolio.position_totals([{"symbol": "Z", "quantity": 0, "avg_price": 0, "value": 0}])
+        self.assertEqual((t["current"], t["invested"], t["unpriced"]), (0.0, 0.0, 0))
+
+    def test_value_falls_back_to_quantity_times_last_price(self):
+        from investlib import portfolio
+        t = portfolio.position_totals([{"quantity": 5, "avg_price": 50, "last_price": 60, "value": None}])
+        self.assertEqual((t["current"], t["invested"], t["gain"]), (300.0, 250.0, 50.0))
+
+    def test_empty_inputs(self):
+        from investlib import portfolio
+        for empty in (None, []):
+            self.assertEqual(portfolio.position_totals(empty),
+                             {"current": 0.0, "invested": 0.0, "gain": 0.0, "unpriced": 0})
+
+    def test_portfolio_bridge_uses_the_same_rule(self):
+        """A broker account can hold a position with no cost basis (a bonus or transferred-in
+        share); the Portfolio page used to book that whole position as profit."""
+        from investlib import bridge
+        rows = [{"quantity": 10, "avg_price": 100, "value": 1200}, {"quantity": 4, "avg_price": 0, "value": 800}]
+        totals = bridge.account_totals({"kite-1": {"rows": rows}})["kite-1"]
+        self.assertEqual(totals, {"invested": 1800.0, "current": 2000.0})
+
+
+class TestOverview(TempDataMixin):
+    """The dashboard's front page: total, people, accounts, attention."""
+
+    TODAY = None
+
+    def setUp(self):
+        super().setUp()
+        from datetime import date
+        self.TODAY = date(2026, 11, 9)
+
+    def _holdings(self, spec):
+        """spec: {account: (as_of, source, [rows])} written straight to the store."""
+        from investlib import store
+        store.save("holdings", {aid: {"as_of": as_of, "source": source, "rows": rows}
+                                for aid, (as_of, source, rows) in spec.items()})
+
+    @staticmethod
+    def _row(qty, avg, last):
+        return {"symbol": "S", "quantity": qty, "avg_price": avg, "last_price": last,
+                "value": round(qty * last, 2), "pnl_pct": 0}
+
+    def _build(self):
+        from investlib import overview
+        return overview.build(today=self.TODAY)
+
+    def test_people_rollup_groups_owners_ignoring_case_and_puts_unassigned_last(self):
+        from investlib import store
+        store.update_account("kite-1", owner="Alex")
+        store.update_account("kite-2", owner="  alex ")     # same person, typed differently
+        store.update_account("upstox-1", owner="Sam")
+        # coin-1 left without an owner
+        self._holdings({
+            "kite-1": ("2026-11-09", "kite api", [self._row(10, 100, 120)]),       # 1200, paid 1000
+            "kite-2": ("2026-11-09", "kite api", [self._row(5, 100, 100)]),        # 500, paid 500
+            "upstox-1": ("2026-11-09", "upstox api", [self._row(10, 50, 60)]),     # 600, paid 500
+            "coin-1": ("2026-11-09", "kite api (coin)", [self._row(10, 10, 10)]),  # 100, paid 100
+        })
+        ov = self._build()
+        self.assertEqual([p["owner"] for p in ov["people"]], ["Alex", "Sam", ""])
+        alex = ov["people"][0]
+        self.assertEqual((alex["value"], alex["invested"], alex["gain"]), (1700.0, 1500.0, 200.0))
+        self.assertEqual(alex["gain_pct"], 13.33)
+        self.assertEqual(sorted(alex["accounts"]), ["kite-1", "kite-2"])
+        self.assertAlmostEqual(sum(p["share"] for p in ov["people"]), 100.0, delta=0.2)
+        self.assertEqual(ov["total"]["value"], 2400.0)
+        self.assertEqual(ov["total"]["accounts"], 4)
+
+    def test_total_equals_the_sum_of_the_people(self):
+        from investlib import store
+        store.update_account("kite-1", owner="Alex")
+        store.update_account("upstox-1", owner="Sam")
+        self._holdings({
+            "kite-1": ("2026-11-09", "kite api", [self._row(3, 33, 37)]),
+            "upstox-1": ("2026-11-09", "upstox api", [self._row(7, 17, 19)]),
+        })
+        ov = self._build()
+        self.assertAlmostEqual(sum(p["value"] for p in ov["people"]), ov["total"]["value"], places=2)
+        self.assertAlmostEqual(sum(p["gain"] for p in ov["people"]), ov["total"]["gain"], places=2)
+
+    def test_unknown_cost_basis_is_reported_and_never_inflates_the_gain(self):
+        from investlib import store
+        store.update_account("kite-1", owner="Alex")
+        self._holdings({"kite-1": ("2026-11-09", "kite api", [
+            self._row(10, 100, 120),
+            {"symbol": "BONUS", "quantity": 4, "avg_price": 0, "last_price": 200, "value": 800, "pnl_pct": 0},
+        ])})
+        ov = self._build()
+        self.assertEqual(ov["total"]["gain"], 200.0)
+        self.assertEqual(ov["total"]["unpriced"], 1)
+        self.assertEqual(ov["accounts"][0]["unpriced"], 1)
+
+    def test_stale_snapshots_use_the_source_specific_threshold(self):
+        from investlib import store
+        for aid in ("kite-1", "wint-1", "wint-2"):
+            store.update_account(aid, owner="Alex")
+        self._holdings({
+            "kite-1": ("2026-11-04", "kite api", [self._row(1, 1, 1)]),     # 5 days, API: stale (> 4)
+            "wint-1": ("2026-10-10", "wint.xlsx", [self._row(1, 1, 1)]),    # 30 days, import: fresh
+            "wint-2": ("2026-10-09", "wint.xlsx", [self._row(1, 1, 1)]),    # 31 days, import: stale
+        })
+        ov = self._build()
+        by_id = {a["id"]: a for a in ov["accounts"]}
+        self.assertTrue(by_id["kite-1"]["stale"])
+        self.assertFalse(by_id["wint-1"]["stale"])
+        self.assertTrue(by_id["wint-2"]["stale"])
+        stale = {s["account"]: s for s in ov["attention"]["stale"]}
+        self.assertEqual(sorted(stale), ["kite-1", "wint-2"])
+        self.assertEqual(stale["kite-1"]["kind"], "api")
+        self.assertEqual(stale["wint-2"]["kind"], "import")
+        self.assertEqual(stale["wint-2"]["age_days"], 31)
+        self.assertEqual(ov["as_of"], {"latest": "2026-11-04", "oldest": "2026-10-09"})
+
+    def test_accounts_without_holdings_are_listed_but_never_stale_or_counted(self):
+        ov = self._build()
+        self.assertEqual(ov["total"]["accounts"], 0)
+        self.assertTrue(ov["accounts"])                       # registry accounts still listed
+        self.assertFalse(any(a["has_data"] or a["stale"] for a in ov["accounts"]))
+        self.assertEqual(ov["people"], [])
+        self.assertEqual(ov["attention"]["stale"], [])
+
+    def test_empty_store_returns_zeros_not_errors(self):
+        from investlib import overview, store
+        store.save("accounts", [])
+        ov = overview.build(today=self.TODAY)
+        self.assertEqual(ov["total"], {"value": 0.0, "invested": 0.0, "gain": 0.0,
+                                       "gain_pct": None, "unpriced": 0, "accounts": 0})
+        self.assertEqual((ov["people"], ov["accounts"]), ([], []))
+        self.assertEqual(ov["as_of"], {"latest": "", "oldest": ""})
+        self.assertEqual(ov["attention"]["ipos"]["to_decide"], 0)
+        self.assertIsNone(ov["attention"]["bonds"]["next_payout"])
+
+    def test_ipos_to_decide_excludes_applied_and_names_the_soonest_close(self):
+        from investlib import ipo
+        ipo.upsert(name="Alpha Foods", close_date="2026-11-10")     # 1 day left: inside the closing-soon window
+        ipo.upsert(name="Beta Steel", close_date="2026-11-20")      # 11 days left
+        ipo.upsert(name="Gamma Tech", close_date="2026-11-09")      # closes today, will be applied
+        ipo.upsert(name="Old Closed", close_date="2026-11-01")      # already closed: ignored
+        ipo.set_applied("Gamma Tech")
+        a = self._build()["attention"]["ipos"]
+        self.assertEqual(a["to_decide"], 2)
+        self.assertEqual(a["applied"], 1)
+        self.assertEqual(a["next_close"], {"name": "Alpha Foods", "days": 1})
+        self.assertEqual(a["closing_soon"], 1)       # Alpha only: Beta is 11 days out, Gamma is applied
+
+    def test_next_bond_payout_is_the_earliest_future_date_summed_for_that_day(self):
+        from investlib import store
+        store.update_account("wint-1", owner="Alex")
+        bonds = [
+            {"symbol": "OLD", "quantity": 1, "total_invested": 100, "value": 100, "pnl_pct": 0, "maturity_date": "2027-01-01",
+             "next_cashflow_date": "2026-11-01", "next_cashflow_amount": 5},      # already paid: ignored
+            {"symbol": "A", "quantity": 1, "total_invested": 100, "value": 100, "pnl_pct": 0, "maturity_date": "2027-01-01",
+             "next_cashflow_date": "2026-11-18", "next_cashflow_amount": 7.5},
+            {"symbol": "B", "quantity": 1, "total_invested": 100, "value": 100, "pnl_pct": 0, "maturity_date": "2027-02-01",
+             "next_cashflow_date": "2026-11-18", "next_cashflow_amount": 2.5},
+            {"symbol": "C", "quantity": 1, "total_invested": 100, "value": 100, "pnl_pct": 0, "maturity_date": "2027-03-01",
+             "next_cashflow_date": "2026-12-30", "next_cashflow_amount": 9},
+        ]
+        self._holdings({"wint-1": ("2026-11-09", "wint.xlsx", bonds)})
+        payout = self._build()["attention"]["bonds"]["next_payout"]
+        self.assertEqual(payout, {"date": "2026-11-18", "days": 9, "count": 2, "amount": 10.0, "soon": True})
+
+    def test_a_distant_bond_payout_is_not_soon(self):
+        from investlib import store
+        store.update_account("wint-1", owner="Alex")
+        self._holdings({"wint-1": ("2026-11-09", "wint.xlsx", [
+            {"symbol": "A", "quantity": 1, "total_invested": 100, "value": 100, "pnl_pct": 0, "maturity_date": "2027-06-01",
+             "next_cashflow_date": "2027-02-01", "next_cashflow_amount": 4}])})
+        payout = self._build()["attention"]["bonds"]["next_payout"]
+        self.assertFalse(payout["soon"])
+
+    def test_failed_syncs_and_ownerless_accounts_are_called_out(self):
+        from investlib import brokers, store
+        store.update_account("kite-1", owner="Alex")
+        self._holdings({
+            "kite-1": ("2026-11-09", "kite api", [self._row(1, 1, 1)]),
+            "coin-1": ("2026-11-09", "kite api (coin)", [self._row(1, 1, 1)]),   # no owner
+        })
+        brokers._record_sync("upstox-1", {"kind": "static_ip", "message": "blocked", "code": "UDAPI1221"})
+        brokers._record_sync("kite-1", None)                                      # a healthy one
+        att = self._build()["attention"]
+        self.assertEqual([f["account"] for f in att["sync_failing"]], ["upstox-1"])
+        self.assertEqual(att["sync_failing"][0]["kind"], "static_ip")
+        self.assertEqual([u["account"] for u in att["unassigned"]], ["coin-1"])
+
+    def test_flagged_count_matches_the_signals_list(self):
+        from investlib import analysis, store
+        store.update_account("kite-1", owner="Alex")
+        self._holdings({"kite-1": ("2026-11-09", "kite api", [
+            {"symbol": "BIG", "quantity": 100, "avg_price": 100, "last_price": 100, "value": 10000, "pnl_pct": 0},
+            {"symbol": "LOSS", "quantity": 1, "avg_price": 100, "last_price": 40, "value": 40, "pnl_pct": -60},
+        ])})
+        self.assertEqual(self._build()["attention"]["flagged"], len(analysis.signals()))
+        self.assertGreaterEqual(self._build()["attention"]["flagged"], 1)
+
+    def test_endpoint_serves_the_overview(self):
+        import invest_api
+        kind, status, payload = invest_api.handle_get("/api/invest/overview", {})
+        self.assertEqual((kind, status), ("json", 200))
+        self.assertEqual(sorted(payload), ["accounts", "as_of", "attention", "bond_payout_window_days",
+                                           "people", "total"])
+
+
 if __name__ == "__main__":
     unittest.main()

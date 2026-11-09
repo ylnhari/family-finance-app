@@ -320,6 +320,53 @@
   #hm-table td { padding: .4rem; vertical-align: middle; }
   #hm-table .hm-sym { min-width: 7rem; }
   #hm-table input[type=number] { width: 100%; }
+
+  /* ---- front page: totals, attention, people, accounts, collapsed reference ---- */
+  .hero-top { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 1.2rem 2rem; justify-content: space-between; align-items: flex-end; }
+  .kpis { display: flex; gap: .7rem; flex-wrap: wrap; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .65rem 1rem; min-width: 9.5rem; }
+  .kpi .k { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; }
+  .kpi .v { font-size: 1.2rem; font-weight: 700; margin-top: .15rem; font-variant-numeric: tabular-nums; }
+  .fresh { display: inline-flex; align-items: center; gap: .4rem; padding: .12rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; vertical-align: middle; margin-left: .35rem; }
+  .fresh.ok { background: rgba(22,163,74,.14); color: var(--pos); }
+  .fresh.warn, .flag.warn { background: rgba(217,119,6,.18); color: #b45309; }
+  :root[data-theme="dark"] .fresh.warn, :root[data-theme="dark"] .flag.warn { color: #fbbf24; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .fresh.warn, :root:not([data-theme="light"]) .flag.warn { color: #fbbf24; } }
+  .attn { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: .9rem 1.2rem; margin-bottom: 1.2rem; }
+  .attn-label, .fold-label { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  .attn-label { margin-bottom: .55rem; }
+  .attn-chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .attn-chip { padding: .35rem .75rem; font-weight: 500; font-size: .84rem; border-radius: 10px; white-space: normal; text-align: left; }
+  #acct-overview td:first-child, #acct-overview th:first-child { min-width: 12rem; }
+  .attn-chip.warn { background: rgba(217,119,6,.14); border-color: rgba(217,119,6,.4); }
+  .attn-clear { color: var(--muted); font-size: .88rem; }
+  .people { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: .8rem; }
+  .pcard { display: block; width: 100%; text-align: left; white-space: normal; padding: .85rem 1rem; border-radius: var(--radius-sm); font-weight: 400; }
+  .pcard[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99,102,241,.25); }
+  .pcard span { display: block; }
+  .pcard .pc-name { font-size: .8rem; color: var(--muted); font-weight: 600; }
+  .pcard .pc-val { font-size: 1.3rem; font-weight: 700; margin: .1rem 0; font-variant-numeric: tabular-nums; }
+  .pcard .pc-gain { font-size: .82rem; }
+  .pcard .pc-bar { height: 5px; border-radius: 99px; background: var(--border); margin-top: .6rem; overflow: hidden; }
+  .pcard .pc-bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+  .pcard .pc-foot { font-size: .74rem; color: var(--faint); margin-top: .35rem; }
+  .pcard.unassigned .pc-name { font-style: italic; }
+  .flag { display: inline-block; margin-left: .4rem; padding: .05rem .45rem; border-radius: 6px; font-size: .7rem; font-weight: 600; }
+  .flag.bad { background: rgba(220,38,38,.13); color: var(--neg); }
+  tr.dim-row td { color: var(--faint); }
+  .fold { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 1rem; }
+  .fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: .7rem; padding: .95rem 1.3rem; }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold .fold-title { font-weight: 700; font-size: 1rem; }
+  .fold .fold-sum { color: var(--muted); font-size: .85rem; flex: 1; }
+  .fold .chev { width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .2s; margin-right: .3rem; }
+  .fold[open] .chev { transform: rotate(-135deg); }
+  .fold-body { padding: .2rem .9rem .6rem; }
+  .fold-body > .section { box-shadow: none; border-color: transparent; background: transparent; backdrop-filter: none; padding-left: .4rem; padding-right: .4rem; }
+  .fold-body > .section + .section { border-top-color: var(--border); border-radius: 0; }
+  .fold-label { margin: 1.6rem .3rem .6rem; }
+  /* the fold's own title already names these two, so their inner heading would only repeat it */
+  #fold-flagged .section-head, #fold-bonds .section-head { display: none; }
 </style>
 </head>
 <body>
@@ -357,34 +404,58 @@
         <div class="pc-desc">Type in holdings yourself — no broker connection needed.</div>
       </a>
     </div>
-    <div class="sub faint">Adding an account creates it in the Accounts list below; broker accounts then show the exact .env keys and redirect URL to register.</div>
+    <div class="sub faint">Adding an account creates it under Data and sync below; broker accounts then show the exact .env keys and redirect URL to register.</div>
   </section>
 
-  <!-- hero: net worth + allocation -->
+  <!-- hero: total value, invested, gain, freshness -->
   <section class="hero card-in" id="valueHero">
-    <div class="label">Total portfolio value</div>
-    <div class="total" id="heroTotal">—</div>
-    <div class="sub" id="heroSub">Loading your accounts…</div>
+    <div class="hero-top">
+      <div>
+        <div class="label">Total portfolio value</div>
+        <div class="total" id="heroTotal">—</div>
+        <div class="sub" id="heroSub">Loading your accounts…</div>
+      </div>
+      <div class="kpis" id="heroKpis"></div>
+    </div>
     <div class="alloc" id="alloc" hidden>
       <div class="alloc-bar" id="allocBar"></div>
       <div class="alloc-legend" id="allocLegend"></div>
     </div>
   </section>
 
-  <!-- broker sync -->
-  <section class="section card-in">
-    <div class="section-head">
-      <h2><span class="ico">🔑</span> Broker sync</h2>
-    </div>
-    <p class="section-desc">Tokens expire nightly — one login click per broker account each morning refreshes everything.</p>
-    <p class="empty" id="tokens-empty" hidden>No broker (Kite/Upstox) accounts yet — add one in the Accounts section below.</p>
-    <div class="t-scroll">
-      <table id="tokens"><thead><tr>
-        <th>Account</th><th>Credentials</th><th>Token today</th><th></th>
-      </tr></thead><tbody><tr><td colspan="4" class="skeleton">Loading…</td></tr></tbody></table>
-    </div>
+  <!-- what needs a decision or a second look: only real items, each opens its section -->
+  <section class="attn card-in" id="attention" hidden>
+    <div class="attn-label">Needs your attention</div>
+    <div class="attn-chips" id="attentionChips"></div>
   </section>
 
+  <!-- whose money is it: one card per owner; selecting one filters the accounts below -->
+  <section class="section card-in" id="people-section" hidden>
+    <div class="section-head">
+      <h2><span class="ico">👥</span> By person</h2>
+      <span class="faint" id="people-hint">Select a card to filter the accounts below</span>
+    </div>
+    <div class="people" id="people"></div>
+  </section>
+
+  <!-- accounts, read-first: value, invested, gain, how fresh. Editing lives under Data and sync. -->
+  <section class="section card-in" id="accounts-overview" hidden>
+    <div class="section-head">
+      <h2><span class="ico">🏦</span> Accounts</h2>
+    </div>
+    <div class="t-scroll">
+      <table id="acct-overview"><thead><tr>
+        <th>Account</th><th>Class</th><th class="num">Value</th><th class="num">Invested</th><th class="num">Gain</th><th>Data as of</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <p class="faint" id="unpriced-note" hidden></p>
+  </section>
+
+  <div class="fold-label" id="fold-label" hidden>Reference</div>
+
+  <details class="fold" id="fold-ipos">
+    <summary><span class="fold-ico">🚀</span><span class="fold-title">IPOs</span><span class="fold-sum" id="fs-ipos"></span><span class="chev" aria-hidden="true"></span></summary>
+    <div class="fold-body">
   <!-- IPOs -->
   <section class="section card-in">
     <div class="section-head">
@@ -530,6 +601,12 @@
     </form>
   </section>
 
+    </div>
+  </details>
+
+  <details class="fold" id="fold-bonds">
+    <summary><span class="fold-ico">📜</span><span class="fold-title">Bonds</span><span class="fold-sum" id="fs-bonds"></span><span class="chev" aria-hidden="true"></span></summary>
+    <div class="fold-body">
   <!-- bonds -->
   <section class="section card-in" id="bonds-section">
     <div class="section-head">
@@ -595,6 +672,12 @@
     </form>
   </section>
 
+    </div>
+  </details>
+
+  <details class="fold" id="fold-flagged">
+    <summary><span class="fold-ico">⚑</span><span class="fold-title">Positions flagged for review</span><span class="fold-sum" id="fs-flagged"></span><span class="chev" aria-hidden="true"></span></summary>
+    <div class="fold-body">
   <!-- signals -->
   <section class="section card-in">
     <div class="section-head">
@@ -608,10 +691,30 @@
     <p class="empty" id="signals-empty" hidden>Nothing flagged — or no holdings synced yet.</p>
   </section>
 
+    </div>
+  </details>
+
+  <details class="fold" id="fold-data">
+    <summary><span class="fold-ico">🔌</span><span class="fold-title">Data and sync</span><span class="fold-sum" id="fs-data"></span><span class="chev" aria-hidden="true"></span></summary>
+    <div class="fold-body">
+  <!-- broker sync -->
+  <section class="section card-in">
+    <div class="section-head">
+      <h2><span class="ico">🔑</span> Broker sync</h2>
+    </div>
+    <p class="section-desc">Tokens expire nightly — one login click per broker account each morning refreshes everything.</p>
+    <p class="empty" id="tokens-empty" hidden>No broker (Kite/Upstox) accounts yet — add one under Manage accounts below.</p>
+    <div class="t-scroll">
+      <table id="tokens"><thead><tr>
+        <th>Account</th><th>Credentials</th><th>Token today</th><th></th>
+      </tr></thead><tbody><tr><td colspan="4" class="skeleton">Loading…</td></tr></tbody></table>
+    </div>
+  </section>
+
   <!-- accounts -->
   <section class="section card-in" id="add-account-section">
     <div class="section-head">
-      <h2><span class="ico">🏦</span> Accounts</h2>
+      <h2><span class="ico">🏦</span> Manage accounts</h2>
     </div>
     <p class="empty" id="accounts-empty" hidden>No accounts yet — add your first one below.</p>
     <div class="t-scroll">
@@ -644,8 +747,11 @@
       <button>⬆ Import CSV</button>
       <span class="faint">columns like Symbol · Quantity · Avg Price · Last Price (broker aliases such as Instrument / Qty / LTP accepted; drop CSV in imports/)</span>
     </form>
-    <p class="faint">Bond (Wint Wealth) statements import from the <a href="#bonds-section" style="color:var(--accent)">Bonds section →</a></p>
+    <p class="faint">Bond (Wint Wealth) statements import from the <a href="#bonds-section" onclick="goToFold('fold-bonds');return false" style="color:var(--accent)">Bonds section →</a></p>
   </section>
+
+    </div>
+  </details>
 
 </div>
 
@@ -806,6 +912,7 @@ function suggestId(type) {
 }
 
 function startAddAccount(type) {
+  openFold("fold-data");
   const sel = document.getElementById("add-broker-type");
   if (type) sel.value = type;
   document.getElementById("add-id").value = suggestId(sel.value);
@@ -826,7 +933,7 @@ function showAccountInfo(acct) {
     <code class="copyable">${esc(redirect)}</code>
     <p>2. Put these in your <b>.env</b> (gitignored — never commit keys):</p>
     <ul>${envs.map(v => `<li><code>${esc(v)}</code></li>`).join("")}</ul>
-    <p>3. Reload this page, then use <b>→ Login &amp; sync</b> in Broker sync above.
+    <p>3. Reload this page, then use <b>→ Login &amp; sync</b> in Broker sync (under Data and sync).
        Full walkthrough:
        <a href="/docs/BROKER-SETUP.md" target="_blank" rel="noopener"
           style="color:var(--accent)">docs/BROKER-SETUP.md</a>
@@ -922,10 +1029,172 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !document.getElementById("holdings-overlay").hidden) closeHoldings();
 });
 
+// ---- front page: total, attention, people, accounts -------------------------------------
+// Everything here is read from GET /api/invest/overview (investlib/overview.py), which uses
+// the same cost-basis and staleness rules as the Portfolio page, so the two cannot disagree.
+let OVERVIEW = null;
+let PERSON_FILTER = null;                       // lower-cased owner key, or null = everyone
+const ownerKey = o => String(o || "").trim().toLowerCase() || "__none__";
+const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
+const signedInr = v => hideValues ? "••••" : (v > 0 ? "+" : v < 0 ? "−" : "") + inr(Math.abs(v));
+const signedPct = p => p == null ? "" : hideValues ? "•••" : (p > 0 ? "+" : p < 0 ? "−" : "") + Math.abs(p).toFixed(1) + "%";
+const gainSpan = (gain, pct) =>
+  `<span class="${gain < 0 ? "neg" : "pos"}">${signedInr(gain)}${pct == null ? "" : " · " + signedPct(pct)}</span>`;
+const inDays = d => d === 0 ? "today" : d === 1 ? "tomorrow" : "in " + d + " days";
+
+function openFold(id) {
+  const d = document.getElementById(id);
+  if (d) d.open = true;
+  return d;
+}
+function goToFold(id) {
+  const d = openFold(id);
+  if (d) d.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+function renderHero(ov) {
+  const t = ov.total, att = ov.attention;
+  document.getElementById("heroTotal").textContent = inr(t.value);
+  const outOfDate = new Set([...att.stale.map(s => s.account), ...att.sync_failing.map(f => f.account)]).size;
+  const fresh = outOfDate
+    ? `<span class="fresh warn">⚠ ${plural(outOfDate, "account")} out of date</span>`
+    : `<span class="fresh ok">● Up to date</span>`;
+  const named = ov.people.filter(p => p.owner).length;
+  const asOf = ov.as_of.latest ? ` · data as of <b>${esc(prettyDate(ov.as_of.latest))}</b>` : "";
+  document.getElementById("heroSub").innerHTML =
+    `Across <b>${plural(t.accounts, "funded account")}</b>` +
+    (named ? ` · <b>${plural(named, "person", "people")}</b>` : "") + asOf + ` ${fresh}`;
+  document.getElementById("heroKpis").innerHTML =
+    `<div class="kpi"><div class="k">Invested</div><div class="v">${inr(t.invested)}</div></div>` +
+    `<div class="kpi"><div class="k">Total gain</div><div class="v">${gainSpan(t.gain, t.gain_pct)}</div></div>`;
+
+  // allocation by asset class, from the same rows as the total so the two always add up
+  const perClass = {};
+  for (const a of ov.accounts) if (a.has_data) perClass[a.asset_class] = (perClass[a.asset_class] || 0) + a.value;
+  const classes = Object.entries(perClass).sort((a, b) => b[1] - a[1]);
+  const total = t.value || 1;
+  document.getElementById("alloc").hidden = classes.length === 0;
+  document.getElementById("allocBar").innerHTML = classes.map(([c, v]) =>
+    `<span style="width:${(v / total * 100).toFixed(2)}%;background:${classColor(c)}" title="${esc(prettyClass(c))}: ${inr(v)}"></span>`).join("");
+  document.getElementById("allocLegend").innerHTML = classes.map(([c, v]) =>
+    `<span class="item"><span class="dot" style="background:${classColor(c)}"></span>
+      ${esc(prettyClass(c))} <b>${inr(v)}</b> <span class="pct">${(v / total * 100).toFixed(0)}%</span></span>`).join("");
+}
+
+// one chip per thing that needs a decision or a second look; each opens the section that fixes it
+function attentionItems(ov) {
+  const a = ov.attention, items = [];
+  const byId = Object.fromEntries(ov.accounts.map(x => [x.id, x]));
+  if (a.ipos.to_decide) {
+    const nc = a.ipos.next_close;
+    items.push({warn: a.ipos.closing_soon > 0, icon: "🚀", fold: "fold-ipos",
+      text: `${plural(a.ipos.to_decide, "IPO")} to decide` + (nc ? ` · ${esc(nc.name)} closes ${inDays(nc.days)}` : "")});
+  }
+  const p = a.bonds.next_payout;
+  if (p && p.soon) {
+    items.push({warn: false, icon: "📜", fold: "fold-bonds",
+      text: `Bond payout ${inDays(p.days)}` + (p.amount ? ` · ${inr(p.amount)}` : "")});
+  }
+  if (a.flagged) items.push({warn: false, icon: "⚑", fold: "fold-flagged", text: `${plural(a.flagged, "position")} flagged for review`});
+
+  const stale = Object.fromEntries(a.stale.map(s => [s.account, s]));
+  const failing = Object.fromEntries(a.sync_failing.map(f => [f.account, f]));
+  for (const id of new Set([...Object.keys(failing), ...Object.keys(stale)])) {
+    const f = failing[id], s = stale[id], acct = byId[id] || {};
+    const parts = [];
+    if (f) parts.push("sync failing" + (f.kind === "static_ip" ? " (static IP)" : ""));
+    if (s) parts.push(`data ${s.age_days} days old`);
+    // a stale bond statement is refreshed from the Bonds section; everything else under Data and sync
+    const fold = s && !f && s.kind === "import" && acct.asset_class === "bonds" ? "fold-bonds" : "fold-data";
+    items.push({warn: true, icon: f ? "🔌" : "⏱", fold, text: `${esc(acct.label || id)}: ${parts.join(" · ")}`});
+  }
+  if (a.unassigned.length) {
+    items.push({warn: false, icon: "👤", fold: "fold-data",
+      text: `${plural(a.unassigned.length, "account")} without an owner — missing from the Portfolio page`});
+  }
+  return items;
+}
+function renderAttention(ov) {
+  const items = attentionItems(ov);
+  document.getElementById("attention").hidden = false;
+  document.getElementById("attentionChips").innerHTML = items.length
+    ? items.map(it => `<button class="attn-chip${it.warn ? " warn" : ""}" onclick="goToFold('${it.fold}')">${it.icon} ${it.text}</button>`).join("")
+    : `<span class="attn-clear">✓ Nothing needs your attention</span>`;
+}
+
+function renderPeople(ov) {
+  document.getElementById("people-section").hidden = ov.people.length === 0;
+  if (PERSON_FILTER && !ov.people.some(p => ownerKey(p.owner) === PERSON_FILTER)) PERSON_FILTER = null;
+  document.getElementById("people").innerHTML = ov.people.map(p => {
+    const key = ownerKey(p.owner);
+    return `<button class="pcard${p.owner ? "" : " unassigned"}" data-owner="${esc(key)}" aria-pressed="${PERSON_FILTER === key}" onclick="filterPerson(this.dataset.owner)">
+      <span class="pc-name">${esc(p.owner || "Unassigned")}</span>
+      <span class="pc-val">${inr(p.value)}</span>
+      <span class="pc-gain">${gainSpan(p.gain, p.gain_pct)}</span>
+      <span class="pc-bar"><i style="width:${Math.min(p.share, 100)}%"></i></span>
+      <span class="pc-foot">${p.share.toFixed(1)}% of total · ${plural(p.accounts.length, "account")}${p.owner ? "" : " · set an owner under Data and sync"}</span>
+    </button>`;
+  }).join("");
+  document.getElementById("people-hint").textContent = PERSON_FILTER
+    ? "Filtered — select the card again to clear" : "Select a card to filter the accounts below";
+}
+function filterPerson(key) {
+  PERSON_FILTER = PERSON_FILTER === key ? null : key;
+  renderPeople(OVERVIEW);
+  renderAccountsOverview(OVERVIEW);
+}
+
+function renderAccountsOverview(ov) {
+  document.getElementById("accounts-overview").hidden = ov.accounts.length === 0;
+  const rows = ov.accounts.filter(a => !PERSON_FILTER || (a.has_data && ownerKey(a.owner) === PERSON_FILTER));
+  document.querySelector("#acct-overview tbody").innerHTML = rows.map(a => {
+    const chip = `<span class="chip" style="background:${classColor(a.asset_class)}22;color:${classColor(a.asset_class)}">${esc(prettyClass(a.asset_class))}</span>`;
+    if (!a.has_data) {
+      return `<tr class="dim-row"><td>${acctCell(a.id)}</td><td>${chip}</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>no data yet</td></tr>`;
+    }
+    const flags = [];
+    if (a.sync && a.sync.ok === false) flags.push(`<span class="flag bad" title="${esc(a.sync.message || "")}">sync failing</span>`);
+    if (a.stale) flags.push(`<span class="flag warn" title="${esc(a.api ? "The broker sync has not succeeded since this date" : "Imported snapshot — re-import a fresh statement")}">${a.age_days}d old</span>`);
+    const dagger = a.unpriced
+      ? ` <span class="faint" title="${esc(plural(a.unpriced, "holding") + " with no known cost basis — carried at current value, adds nothing to the gain")}">†</span>` : "";
+    return `<tr><td>${acctCell(a.id)}</td><td>${chip}</td>
+      <td class="num">${inr(a.value)}</td><td class="num">${inr(a.invested)}</td>
+      <td class="num">${gainSpan(a.gain, a.gain_pct)}${dagger}</td>
+      <td class="faint">${esc(prettyDate(a.as_of))}${flags.join("")}<br><small>${esc(a.source || "")}</small></td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="faint">No accounts for this person.</td></tr>`;
+  const unpriced = rows.reduce((n, a) => n + (a.unpriced || 0), 0);
+  const note = document.getElementById("unpriced-note");
+  note.hidden = !unpriced;
+  note.textContent = unpriced
+    ? `† ${plural(unpriced, "holding")} with no known cost basis ${unpriced === 1 ? "is" : "are"} carried at current value, so ${unpriced === 1 ? "it adds" : "they add"} nothing to the gain.`
+    : "";
+}
+
+function renderFoldSummaries(ov, ctx) {
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  const ip = ov.attention.ipos, np = ov.attention.bonds.next_payout;
+  set("fs-ipos", `${ip.to_decide} to decide · ${ip.applied} applied · ${ctx.ipoHistory.length} in listing history`);
+  set("fs-bonds", ctx.bonds.length
+    ? `${plural(ctx.bonds.length, "bond")}` + (np ? ` · next payout ${prettyDate(np.date)} (${inDays(np.days)})` : "")
+    : "none imported yet");
+  set("fs-flagged", ctx.signals.length ? `${ctx.signals.length} to review` : "nothing flagged");
+  const brokers = Object.keys(ctx.tokens).length, failing = ov.attention.sync_failing.length;
+  set("fs-data", `${plural(brokers, "broker account")}` + (failing ? ` · ${failing} failing` : brokers ? " · none failing" : "") +
+    ` · ${plural(ctx.accounts.length, "account")} in total`);
+}
+
+// remember which reference sections were left open
+document.querySelectorAll("details.fold").forEach(d => {
+  try { if (localStorage.getItem("ffa_invest_" + d.id) === "1") d.open = true; } catch (e) { /* storage blocked: stay closed */ }
+  d.addEventListener("toggle", () => {
+    try { localStorage.setItem("ffa_invest_" + d.id, d.open ? "1" : "0"); } catch (e) { /* ignore */ }
+  });
+});
+
 async function render() {
-  const [summary, signals, ipos, accounts, tokens, files, bonds, ipoHistory, allotments, personsResp] = await Promise.all(
+  const [summary, signals, ipos, accounts, tokens, files, bonds, ipoHistory, allotments, personsResp, ov] = await Promise.all(
     ["/api/invest/summary", "/api/invest/signals", "/api/invest/ipos", "/api/invest/accounts", "/api/invest/tokens", "/api/invest/imports",
-     "/api/invest/bonds", "/api/invest/ipo-history", "/api/invest/ipo-allotments", "/api/invest/persons"].map(get));
+     "/api/invest/bonds", "/api/invest/ipo-history", "/api/invest/ipo-allotments", "/api/invest/persons", "/api/invest/overview"].map(get));
 
   LABELS = Object.fromEntries(accounts.map(a => [a.id, a.label]));
   OWNERS = Object.fromEntries(accounts.map(a => [a.id, a.owner || ""]).filter(([, o]) => o));
@@ -936,26 +1205,21 @@ async function render() {
   const hasAccounts = accounts.length > 0;
   document.getElementById("onboarding").hidden = hasAccounts;
   document.getElementById("valueHero").hidden = !hasAccounts;
+  for (const id of ["attention", "people-section", "accounts-overview", "fold-label"]) document.getElementById(id).hidden = !hasAccounts;
+  if (!hasAccounts) openFold("fold-data");   // the add-account form lives there
   document.getElementById("accounts-empty").hidden = hasAccounts;
   // owner suggestions for the add-account form (known persons + invest owners)
   document.getElementById("owner-suggestions").innerHTML =
     PERSONS.map(p => `<option value="${esc(p)}">`).join("");
 
-  // ---- hero: total + allocation ----
-  document.getElementById("heroTotal").textContent = inr(summary.total);
-  const nAccounts = Object.keys(summary.per_account).length;
-  const nClasses = Object.keys(summary.per_asset_class).length;
-  document.getElementById("heroSub").innerHTML =
-    `Across <b>${nAccounts}</b> funded account${nAccounts === 1 ? "" : "s"} · <b>${nClasses}</b> asset class${nClasses === 1 ? "" : "es"}`;
-
-  const classes = Object.entries(summary.per_asset_class).sort((a, b) => b[1] - a[1]);
-  const total = summary.total || classes.reduce((s, [, v]) => s + v, 0) || 1;
-  document.getElementById("alloc").hidden = classes.length === 0;
-  document.getElementById("allocBar").innerHTML = classes.map(([c, v]) =>
-    `<span style="width:${(v / total * 100).toFixed(2)}%;background:${classColor(c)}" title="${esc(prettyClass(c))}: ${inr(v)}"></span>`).join("");
-  document.getElementById("allocLegend").innerHTML = classes.map(([c, v]) =>
-    `<span class="item"><span class="dot" style="background:${classColor(c)}"></span>
-      ${esc(prettyClass(c))} <b>${inr(v)}</b> <span class="pct">${(v / total * 100).toFixed(0)}%</span></span>`).join("");
+  // ---- front page: total, attention, people, accounts, fold summaries ----
+  OVERVIEW = ov;
+  if (ov.error) {
+    toast("Couldn't load the overview: " + ov.error, "err");
+  } else {
+    if (hasAccounts) { renderHero(ov); renderAttention(ov); renderPeople(ov); renderAccountsOverview(ov); }
+    renderFoldSummaries(ov, {ipoHistory, bonds, signals, tokens, accounts});
+  }
 
   // ---- broker sync ----
   document.getElementById("tokens-empty").hidden = Object.keys(tokens).length > 0;
