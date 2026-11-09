@@ -49,6 +49,7 @@ and math regressions.
 | Zero-install import guard | integration | `test_no_extras.py` | every app module imports with optional live-sync extras forced absent |
 | GET/PUT persistence | integration | `test_server.py` | roundtrip, full-document sections preserved |
 | Concurrent writes (regression) | integration | `test_server.py` | 20 parallel PUTs, no `Errno 13`, file stays valid (the save-lock fix) |
+| Atomic file writes | unit | `test_atomic_write.py` | temp-then-replace round trip; a transient `os.replace` failure is retried; a permanent one keeps the old file and leaves no `.tmp`; threads saving the same file are serialised (Windows' refuse-an-overlapping-replace rule is modelled, so this is deterministic on every OS); backoff pauses are jittered but never shorter than the plain schedule |
 | Static serving + shared theme | integration | `test_server.py` | index.html, finance-math.js, theme.js wired into both `/` and `/invest` (D11: one `ffa_theme` key) |
 | File lifecycle | integration | `test_server.py` | upload→list→download→delete, dedupe, empty rejected |
 | Security / errors | integration | `test_server.py` | path-traversal blocked, unknown route 404, invalid JSON 400, delete-missing 404 |

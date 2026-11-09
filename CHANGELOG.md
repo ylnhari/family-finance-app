@@ -37,6 +37,17 @@ uses [Semantic Versioning](https://semver.org/).
   classified (`brokers.classify_sync_error`): a rejected token still asks for a login, but a
   blocked fetch (e.g. Upstox static-IP rule, `UDAPI1221`) or an unreachable broker is pushed as
   "Broker sync failing" with the actual reason. `refresh_all()` keeps its old return value.
+- **Concurrent saves of one file no longer fail intermittently on Windows.** Windows refuses a
+  replace that overlaps another replace of the same file with `PermissionError` ("Access is
+  denied"), and `atomic_write.py` retried every loser on the same fixed schedule, so twenty
+  simultaneous writers could exhaust the retry budget (seen as a rare failure of
+  `test_concurrent_writers_never_corrupt_file_or_leak_tmp_files` on the Windows CI jobs). The
+  helper now serialises same-process replaces of one file and lengthens each backoff pause by a
+  random 0-50% so writers that do collide drift apart; no pause is shorter than before. The
+  previous file is still never truncated, the last replace still wins, and no `.tmp` file is left
+  behind. Writes to `finances.json` were already serialised by the server's file lock; this
+  mainly protects the unlocked `data/invest/*.json` writers. Writers in different processes
+  are still separated by the retry loop alone.
 
 ### Added
 - **Possible double-count warning on the Portfolio page** — a hand-typed row whose owner, asset
