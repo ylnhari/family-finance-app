@@ -37,30 +37,73 @@ def _push(title: str, message: str) -> None:
                   timeout=30)
 
 
-def refresh_all() -> list[str]:
+def refresh_accounts() -> tuple[list[str], dict[str, str]]:
     """Log in + sync every configured API account that can go headless.
-    Returns the accounts that still need a manual login at the dashboard
-    (Upstox always; any Kite account whose auto-login failed)."""
+
+    Returns (needs_login, sync_blocked):
+      needs_login   — accounts where a manual login at the dashboard will help
+                      (no headless path, auto-login failed, or the broker rejected the token)
+      sync_blocked  — {account: reason} where the token was accepted but the holdings
+                      fetch is blocked for another reason (e.g. a static-IP rule, or the
+                      broker being unreachable). Telling the user to log in again would
+                      send them down the wrong path, so these are reported separately.
+    """
     status = brokers.token_status()
-    needs_manual = []
+    needs_login: list[str] = []
+    sync_blocked: dict[str, str] = {}
     for account_id, _kind in brokers.api_accounts():
         if not status[account_id]["configured"]:
             continue  # no credentials for this account — nothing to refresh
         try:
             brokers.headless_login(account_id)
-            print(f"{account_id}: refreshed + synced {brokers.sync(account_id)}")
         except NotImplementedError:
-            needs_manual.append(account_id)  # e.g. upstox-1
+            needs_login.append(account_id)  # no headless path for this account
+            continue
         except Exception as e:  # a broker flake shouldn't abort the other accounts
             print(f"{account_id}: auto-login failed: {e}", file=sys.stderr)
-            needs_manual.append(account_id)
-    return needs_manual
+            needs_login.append(account_id)
+            continue
+        try:
+            print(f"{account_id}: refreshed + synced {brokers.sync(account_id)}")
+        except Exception as e:
+            info = brokers.classify_sync_error(e)
+            print(f"{account_id}: sync failed ({info['kind']}): {info['message']}", file=sys.stderr)
+            if info["kind"] == "auth":
+                needs_login.append(account_id)
+            else:
+                sync_blocked[account_id] = info["message"]
+    return needs_login, sync_blocked
+
+
+def refresh_all() -> list[str]:
+    """Accounts that still need a manual login at the dashboard (compat wrapper)."""
+    return refresh_accounts()[0]
+
+
+def compose_push(needs_login: list[str], sync_blocked: dict[str, str]):
+    """(title, body) for the morning push, or None when everything refreshed.
+
+    Account ids and fixed reason text only — never a balance, holding or token."""
+    lines = []
+    if needs_login:
+        lines.append("Log in at the dashboard for: " + ", ".join(needs_login))
+    lines.extend(f"{account}: {reason}" for account, reason in sync_blocked.items())
+    if not lines:
+        return None
+    if needs_login and sync_blocked:
+        title = "Broker accounts need attention"
+    elif needs_login:
+        title = "Broker login needed"
+    else:
+        title = "Broker sync failing"
+    return title, "\n".join(lines)
 
 
 if __name__ == "__main__":
-    manual = refresh_all()
-    if manual:
-        _push("Broker login needed", "Log in at the dashboard for: " + ", ".join(manual))
-        print("needs manual login: " + ", ".join(manual))
+    needs_login, sync_blocked = refresh_accounts()
+    push = compose_push(needs_login, sync_blocked)
+    if push:
+        _push(*push)
+        print(push[0] + ": " + push[1].replace("\n", " | "))
     else:
         print("all API accounts refreshed")

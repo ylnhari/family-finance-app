@@ -38,10 +38,18 @@ reasonable default; adjust to taste):
 nightly token expiry:
 - Logs in **fully headless** to every configured Kite account using stored
   `_USER_ID`/`_PASSWORD`/`_TOTP_SECRET` credentials, then syncs its holdings.
-- Upstox has no reliable headless login path, so an Upstox account (or any Kite account
-  whose headless login failed) instead gets a single ntfy push titled "Broker login
+- Upstox has no reliable headless login path (unless you use the long-lived Analytics
+  Token), so an Upstox account, or any Kite account whose headless login failed, or any
+  account whose broker rejects the token, gets a single ntfy push titled "Broker login
   needed": "Log in at the dashboard for: `<account ids>`" — you find out *before* you
   trust stale numbers, rather than silently working from yesterday's data.
+- If the login is fine but the **holdings fetch itself is blocked** — most often Upstox
+  rejecting a call that does not come from the static IP registered on your API app
+  (error `UDAPI1221`), or the broker being unreachable — the push is titled "Broker sync
+  failing" and says what happened, because logging in again would send you the wrong
+  way. Both kinds in one run arrive as one push, "Broker accounts need attention".
+  The dashboard's Broker sync table shows the same failure next to the account, and the
+  Portfolio badge turns amber ("⚠ Nd old") once a snapshot is stale.
 - Same privacy rule as `daily_brief.py`: the push names only which account needs
   attention, never a balance or holding.
 

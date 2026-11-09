@@ -724,6 +724,17 @@
       "maturityAge": 0,
       "maturityMonths": 0,
       "notes": "emergency buffer"
+    },
+    {
+      "id": "pf09",
+      "category": "Stocks (typed in before syncing)",
+      "subCategory": "Equity",
+      "owner": "Arjun",
+      "invested": 30000,
+      "currentValue": 33000,
+      "maturityAge": 0,
+      "maturityMonths": 0,
+      "notes": "demo of the double-count warning: mirrors the synced demo Kite account"
     }
   ],
   "gold": [

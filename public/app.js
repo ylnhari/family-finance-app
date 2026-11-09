@@ -489,12 +489,21 @@ function liveSyncSourceDesc(src, isBroker) {
 function liveSyncBadge(p) {
   const src = (p.source || "").trim();
   const isBroker = BROKER_SOURCE_RE.test(src);
+  /* lastSynced is the holdings snapshot's own date (a bare YYYY-MM-DD), not "now" —
+     a stale snapshot must never read as freshly updated. */
+  const raw = String(p.lastSynced || "");
+  const synced = raw ? (raw.length <= 10 ? fmtDate(raw) : fmtDateTime(raw)) : "—";
+  const base = `${esc(p.category)} · ${liveSyncSourceDesc(src, isBroker)} · as of ${synced}`;
+  const note = ` · this row is fed from the Investments tab — edit it there, not here`;
+  if (p.stale) {
+    const why = isBroker
+      ? "the broker sync has not succeeded since — open Broker sync on the Investments tab"
+      : "re-import a fresh statement on the Investments tab";
+    return `<span class="chip amber" title="${base} · ${p.ageDays} days old: ${why}${note}">⚠ ${p.ageDays}d old</span>`;
+  }
   const label = isBroker ? "⟳ live" : "⟳ synced";
   const cls = isBroker ? "live" : "synced";
-  const synced = p.lastSynced ? fmtDateTime(p.lastSynced) : "—";
-  const title = `${esc(p.category)} · ${liveSyncSourceDesc(src, isBroker)} · last updated ${synced}`
-    + ` · this row is fed from the Investments tab — edit it there, not here`;
-  return `<span class="chip ${cls}" title="${title}">${label}</span>`;
+  return `<span class="chip ${cls}" title="${base}${note}">${label}</span>`;
 }
 
 /* paired horizontal bars per row — e.g. Invested vs Current value, with return % */
@@ -1652,6 +1661,8 @@ function delInvestment(i) {
 /* ================= PORTFOLIO ================= */
 PAGES.portfolio = () => {
   const owners = [...new Set(DB.portfolio.map(p => p.owner || "Family"))];
+  const dupRows = findLikelyDuplicateRows(DB.portfolio);
+  const dupIds = new Set(dupRows.map(d => d.manualId));
   const pt = portfolioTotals(), gold = goldTotal(), gg = goldGain();
   const totalGrams = DB.gold.reduce((s, g) => s + num(g.grams), 0);
 
@@ -1715,6 +1726,8 @@ PAGES.portfolio = () => {
     `<button class="btn" onclick="addHolding()">+ Add Holding</button>
      <button class="btn secondary" onclick="addGold()">+ Add Gold</button>`) +
   (DB.liveRowsError ? `<div class="page-note warn">⚠&nbsp;<div><b>Live investment sync issue:</b> ${esc(DB.liveRowsError)} — showing the last values we have.</div></div>` : "") +
+  (dupRows.length ? `<div class="page-note warn">⚠&nbsp;<div><b>Possible double count:</b> ${dupRows.map(d =>
+      `“${esc(d.manualLabel)}” (${esc(d.owner)}, ${esc(d.subCategory)}) has nearly the same invested and current value as the synced account “${esc(d.liveLabel)}”`).join("; ")}. Totals and allocation count both. If the hand-typed row is the same holdings, delete it.</div></div>` : "") +
   `<div class="page-note">ⓘ&nbsp;<div>Holdings track <b>invested vs current value</b> per owner; <b>Maturity</b> shows the owner's age and the year an instrument unlocks (set a date of birth in Settings). Physical gold values use one current rate you can auto-fetch or set for all rows.</div></div>` +
 
   /* ---- TOP: family asset allocation by class ---- */
@@ -1750,7 +1763,9 @@ PAGES.portfolio = () => {
         ? `<td>${liveSyncBadge(p)}</td>`
         : `<td><button class="icon-btn" onclick="editHolding(${i})">✎</button>
               <button class="icon-btn danger" onclick="delHolding(${i})">✕</button></td>`;
-      return `<tr><td><b>${esc(p.category)}</b>${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}</td>
+      const dupChip = dupIds.has(p.id)
+        ? ` <span class="chip amber" title="Nearly the same value as a synced account — see the note at the top of this page">possible duplicate</span>` : "";
+      return `<tr><td><b>${esc(p.category)}</b>${dupChip}${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}</td>
           <td><span class="chip gray">${esc(p.subCategory || "—")}</span></td>
           ${invCell}
           ${curCell}

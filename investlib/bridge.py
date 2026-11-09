@@ -8,9 +8,18 @@ tampered liveSync row back to disk, because inject_live_rows() is re-run on
 every PUT before anything is saved (see server.py).
 """
 
-from datetime import datetime
+import re
+from datetime import date, datetime
 
 from . import store
+
+# A broker-API snapshot older than this many days is "stale": the nightly sync is
+# failing or not running. 4 days covers a normal long weekend of closed markets.
+API_STALE_DAYS = 4
+# Manual / CSV / xlsx snapshots never refresh themselves; nudge after about a month
+# (same cadence as analysis.BOND_REFRESH_STALE_DAYS).
+IMPORT_STALE_DAYS = 30
+_API_SOURCE_RE = re.compile(r"\bapi\b", re.I)   # mirrors BROKER_SOURCE_RE in public/app.js
 
 # investlib account asset_class -> portfolio subCategory shown in the UI.
 ASSET_CLASS_SUBCATEGORY = {
@@ -41,6 +50,22 @@ def account_totals(holdings_by_account: dict) -> dict:
     return totals
 
 
+def _day(text):
+    """The calendar day of an ISO date/datetime string, or None if unparseable."""
+    try:
+        return date.fromisoformat(str(text)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def snapshot_age_days(as_of, now_iso):
+    """Whole days from a holdings snapshot's as_of date to now; None if unknown."""
+    then, now = _day(as_of), _day(now_iso)
+    if then is None or now is None:
+        return None
+    return max((now - then).days, 0)
+
+
 def live_rows(accounts: list, holdings_by_account: dict, now_iso: str) -> list:
     """One portfolio row per account that has holdings AND a non-empty owner.
 
@@ -60,6 +85,10 @@ def live_rows(accounts: list, holdings_by_account: dict, now_iso: str) -> list:
         if not snapshot or not snapshot.get("rows"):
             continue
         totals_for_account = totals.get(account_id, {"invested": 0.0, "current": 0.0})
+        source = snapshot.get("source", "")
+        as_of = snapshot.get("as_of", "")
+        age_days = snapshot_age_days(as_of, now_iso)
+        limit = API_STALE_DAYS if _API_SOURCE_RE.search(str(source)) else IMPORT_STALE_DAYS
         rows.append({
             "id": f"live-{account_id}",
             "liveSync": True,
@@ -69,12 +98,16 @@ def live_rows(accounts: list, holdings_by_account: dict, now_iso: str) -> list:
             "owner": owner,
             "invested": totals_for_account["invested"],
             "currentValue": totals_for_account["current"],
-            "lastSynced": now_iso,
+            # the snapshot's OWN date. This used to be now_iso, which stamped a
+            # 72-day-old snapshot "updated just now" and hid a failing sync.
+            "lastSynced": as_of or "",
+            "ageDays": age_days,
+            "stale": age_days is not None and age_days > limit,
             # holdings snapshot source ("kite api", "upstox api", "kite api (coin)",
             # "manual", or an imported CSV/xlsx filename) — lets the main app tell a
             # true broker-API live sync apart from manual/CSV/xlsx entry made in the
             # Investments tab (see public/app.js liveSyncBadge()).
-            "source": snapshot.get("source", ""),
+            "source": source,
         })
     return rows
 

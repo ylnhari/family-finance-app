@@ -202,6 +202,13 @@ Restart the server after editing `.env` (it's loaded once at startup).
   `.env` entry alone for an id you never added in the UI won't surface anything.
 - **Upstox Analytics Token returns no holdings** — that token needs a Static IP
   registered on the app (see step 3); without one, use the ordinary daily login instead.
+  Upstox answers with HTTP 401 and error code `UDAPI1221` ("permitted only when requested
+  from the static IP configured in your account"). The Broker sync table then shows the
+  account as **sync failing · static IP** even though the token itself still looks valid,
+  and the morning push says "Broker sync failing" instead of "Broker login needed". If
+  your home IP changes (most home connections), the registered IP stops matching: either
+  re-register the new IP, or remove `UPSTOX_<n>_ANALYTICS_TOKEN` from `.env` and use
+  **Login & sync** each morning.
 - **`COIN_SOURCE_ACCOUNT` set to an account id that doesn't exist** — should degrade with
   a clear message rather than fail silently; if you hit a silent no-op or crash instead,
   file it as a bug.

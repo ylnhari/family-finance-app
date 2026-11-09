@@ -1333,5 +1333,272 @@ class TestMissingExtras(unittest.TestCase):
                          "https://ntfy.sh/investments-topic")
 
 
+class TestLiveRowFreshness(unittest.TestCase):
+    """The Portfolio's live rows must carry the snapshot's own date and flag stale
+    snapshots. They used to be stamped "now", which hid a broker sync that had been
+    failing for weeks behind a green "live" badge."""
+
+    ACCOUNTS = [
+        {"id": "kite-1", "label": "Kite", "asset_class": "stocks", "owner": "Alex"},
+        {"id": "wint-1", "label": "Wint", "asset_class": "bonds", "owner": "Alex"},
+    ]
+
+    def _rows(self, kite, wint, now="2026-11-09T11:00:00"):
+        from investlib import bridge
+        one = [{"symbol": "X", "quantity": 1, "avg_price": 10, "last_price": 10, "value": 10}]
+        holdings = {"kite-1": {"as_of": kite[0], "source": kite[1], "rows": one},
+                    "wint-1": {"as_of": wint[0], "source": wint[1], "rows": one}}
+        return {r["investAccountId"]: r for r in bridge.live_rows(self.ACCOUNTS, holdings, now)}
+
+    def test_last_synced_is_the_snapshot_date_never_now(self):
+        rows = self._rows(("2026-08-29", "upstox api"), ("2026-07-10", "wint.xlsx"))
+        self.assertEqual(rows["kite-1"]["lastSynced"], "2026-08-29")
+        self.assertEqual(rows["kite-1"]["ageDays"], 72)
+
+    def test_broker_api_snapshot_older_than_a_long_weekend_is_stale(self):
+        from investlib import bridge
+        fresh = self._rows(("2026-11-09", "kite api"), ("2026-11-09", "wint.xlsx"))
+        weekend = self._rows(("2026-11-05", "kite api"), ("2026-11-09", "wint.xlsx"))   # 4 days: still ok
+        old = self._rows(("2026-11-04", "kite api"), ("2026-11-09", "wint.xlsx"))       # 5 days: stale
+        self.assertFalse(fresh["kite-1"]["stale"])
+        self.assertFalse(weekend["kite-1"]["stale"])
+        self.assertTrue(old["kite-1"]["stale"])
+        self.assertEqual(bridge.API_STALE_DAYS, 4)
+
+    def test_imported_snapshot_goes_stale_only_after_a_month(self):
+        from investlib import bridge
+        ok = self._rows(("2026-11-09", "kite api"), ("2026-10-10", "wint.xlsx"))        # 30 days
+        old = self._rows(("2026-11-09", "kite api"), ("2026-10-09", "wint.xlsx"))       # 31 days
+        self.assertFalse(ok["wint-1"]["stale"])
+        self.assertTrue(old["wint-1"]["stale"])
+        self.assertEqual(bridge.IMPORT_STALE_DAYS, 30)
+
+    def test_unknown_dates_are_not_called_stale(self):
+        """Missing as_of or an unparseable "now" must degrade to unknown, never crash or guess."""
+        rows = self._rows(("", "kite api"), ("2026-07-10", "wint.xlsx"), now="not-a-date")
+        self.assertEqual(rows["kite-1"]["lastSynced"], "")
+        self.assertIsNone(rows["kite-1"]["ageDays"])
+        self.assertFalse(rows["kite-1"]["stale"])
+        self.assertIsNone(rows["wint-1"]["ageDays"])
+        self.assertFalse(rows["wint-1"]["stale"])
+
+
+class _FakeResponse:
+    def __init__(self, status, text):
+        self.status_code, self.text = status, text
+
+
+class _FakeHTTPError(Exception):
+    """Stands in for requests.HTTPError without importing the optional dependency."""
+
+    def __init__(self, status, text=""):
+        super().__init__(f"{status} Client Error")
+        self.response = _FakeResponse(status, text)
+
+
+class TokenException(Exception):
+    """Same class name as kiteconnect.exceptions.TokenException (classified by name)."""
+
+
+STATIC_IP_BODY = ('{"status":"error","errors":[{"errorCode":"UDAPI1221","message":"The API you '
+                  'are trying to access is permitted only when requested from the static IP '
+                  'configured in your account."}]}')
+
+
+class TestSyncErrorClassification(unittest.TestCase):
+    def test_static_ip_rejection_is_not_mistaken_for_an_expired_login(self):
+        """It arrives as HTTP 401, exactly like an expired token, but the token was
+        accepted and the request blocked for another reason. Reporting it as "log in
+        again" sent a daily false alarm that pointed at the wrong fix."""
+        from investlib import brokers
+        info = brokers.classify_sync_error(_FakeHTTPError(401, STATIC_IP_BODY))
+        self.assertEqual(info["kind"], "static_ip")
+        self.assertEqual(info["code"], "UDAPI1221")
+        self.assertIn("static IP", info["message"])
+        self.assertIn("BROKER-SETUP", info["message"])          # points at the documented alternatives
+        self.assertNotIn("log in again", info["message"].lower())
+
+    def test_plain_unauthorized_means_log_in_again(self):
+        from investlib import brokers
+        self.assertEqual(brokers.classify_sync_error(_FakeHTTPError(401, '{"errorCode":"UDAPI100050"}'))["kind"], "auth")
+        self.assertEqual(brokers.classify_sync_error(_FakeHTTPError(403))["kind"], "auth")
+        self.assertEqual(brokers.classify_sync_error(TokenException("Incorrect api_key or access_token"))["kind"], "auth")
+        self.assertEqual(brokers.classify_sync_error(ValueError("kite-1: no token - login first"))["kind"], "auth")
+
+    def test_connection_trouble_is_network(self):
+        from investlib import brokers
+        self.assertEqual(brokers.classify_sync_error(ConnectionError("dns"))["kind"], "network")
+        self.assertEqual(brokers.classify_sync_error(TimeoutError("slow"))["kind"], "network")
+
+    def test_anything_else_is_other_and_never_echoes_a_token(self):
+        from investlib import brokers
+        secret = "A1b2C3d4" * 6
+        info = brokers.classify_sync_error(RuntimeError("boom " + secret))
+        self.assertEqual(info["kind"], "other")
+        self.assertNotIn(secret, info["message"])
+        self.assertIn("<redacted>", info["message"])
+
+    def test_unreadable_response_body_does_not_crash(self):
+        from investlib import brokers
+
+        class Broken:
+            status_code = 500
+
+            @property
+            def text(self):
+                raise RuntimeError("stream closed")
+
+        err = Exception("x")
+        err.response = Broken()
+        self.assertEqual(brokers.classify_sync_error(err)["kind"], "other")
+
+
+class TestSyncHealthRecording(TempDataMixin):
+    def test_failed_sync_is_recorded_and_surfaced_in_token_status(self):
+        from unittest import mock
+        from investlib import brokers
+        with mock.patch.object(brokers, "kite_sync", side_effect=_FakeHTTPError(401, STATIC_IP_BODY)):
+            with self.assertRaises(_FakeHTTPError):
+                brokers.sync("kite-1")          # the original error still reaches the caller
+        entry = brokers.sync_status()["kite-1"]
+        self.assertFalse(entry["ok"])
+        self.assertEqual(entry["kind"], "static_ip")
+        self.assertEqual(entry["code"], "UDAPI1221")
+        self.assertEqual(brokers.token_status()["kite-1"]["sync"]["kind"], "static_ip")
+
+    def test_a_later_good_sync_clears_the_failure(self):
+        from unittest import mock
+        from investlib import brokers
+        with mock.patch.object(brokers, "kite_sync", side_effect=ConnectionError("down")):
+            with self.assertRaises(ConnectionError):
+                brokers.sync("kite-1")
+        self.assertFalse(brokers.sync_status()["kite-1"]["ok"])
+        with mock.patch.object(brokers, "kite_sync", return_value={"kite-1": 3}):
+            self.assertEqual(brokers.sync("kite-1"), {"kite-1": 3})
+        entry = brokers.sync_status()["kite-1"]
+        self.assertTrue(entry["ok"])
+        self.assertNotIn("kind", entry)
+
+    def test_an_account_never_synced_has_no_sync_entry(self):
+        from investlib import brokers
+        self.assertNotIn("sync", brokers.token_status()["kite-1"])   # payload unchanged for unsynced accounts
+
+    def test_bookkeeping_failure_never_breaks_a_good_sync(self):
+        from unittest import mock
+        from investlib import brokers, store
+        with mock.patch.object(brokers, "kite_sync", return_value={"kite-1": 1}), \
+                mock.patch.object(store, "save", side_effect=OSError("disk full")):
+            self.assertEqual(brokers.sync("kite-1"), {"kite-1": 1})
+
+    def test_sync_status_file_holds_no_credentials(self):
+        from unittest import mock
+        from investlib import brokers
+        secret = "Zz9Yy8Xx" * 6
+        with mock.patch.object(brokers, "kite_sync", side_effect=RuntimeError("bad " + secret)):
+            with self.assertRaises(RuntimeError):
+                brokers.sync("kite-1")
+        raw = (Path(self._tmp.name) / "sync_status.json").read_text(encoding="utf-8")
+        self.assertNotIn(secret, raw)
+
+
+class TestRefreshReportsTheRealProblem(TempDataMixin):
+    """The 07:45 job told the user to "log in" for every failure. A static-IP rejection
+    means the token was accepted, so it is reported separately instead of as a login."""
+
+    def _run(self, sync):
+        from unittest import mock
+        import refresh_tokens
+        from investlib import brokers
+        status = {aid: {"configured": True} for aid, _ in brokers.api_accounts()}
+        with mock.patch.object(brokers, "token_status", return_value=status), \
+                mock.patch.object(brokers, "headless_login", return_value=None), \
+                mock.patch.object(brokers, "sync", side_effect=sync):
+            return refresh_tokens.refresh_accounts()
+
+    def test_static_ip_block_is_not_a_login_request(self):
+        def sync(account_id):
+            if account_id == "upstox-1":
+                raise _FakeHTTPError(401, STATIC_IP_BODY)
+            return {}
+
+        needs_login, blocked = self._run(sync)
+        self.assertEqual(needs_login, [])
+        self.assertEqual(list(blocked), ["upstox-1"])
+        self.assertIn("static IP", blocked["upstox-1"])
+
+    def test_rejected_token_does_ask_for_a_login(self):
+        def sync(account_id):
+            if account_id == "upstox-1":
+                raise _FakeHTTPError(401, '{"errorCode":"UDAPI100050"}')
+            return {}
+
+        needs_login, blocked = self._run(sync)
+        self.assertEqual(needs_login, ["upstox-1"])
+        self.assertEqual(blocked, {})
+
+    def test_network_failure_is_reported_as_sync_failing(self):
+        def sync(account_id):
+            raise ConnectionError("dns")
+
+        needs_login, blocked = self._run(lambda a: sync(a))
+        self.assertEqual(needs_login, [])
+        self.assertTrue(blocked)
+        self.assertTrue(all("reach the broker" in m for m in blocked.values()))
+
+    def test_refresh_all_keeps_returning_only_the_login_list(self):
+        from unittest import mock
+        import refresh_tokens
+        with mock.patch.object(refresh_tokens, "refresh_accounts",
+                               return_value=(["kite-2"], {"upstox-1": "blocked"})):
+            self.assertEqual(refresh_tokens.refresh_all(), ["kite-2"])
+
+    def test_push_wording_matches_what_is_wrong(self):
+        import refresh_tokens
+        self.assertIsNone(refresh_tokens.compose_push([], {}))
+        self.assertEqual(refresh_tokens.compose_push(["kite-2"], {}),
+                         ("Broker login needed", "Log in at the dashboard for: kite-2"))
+        self.assertEqual(refresh_tokens.compose_push([], {"upstox-1": "static IP"}),
+                         ("Broker sync failing", "upstox-1: static IP"))
+        title, body = refresh_tokens.compose_push(["kite-2"], {"upstox-1": "static IP"})
+        self.assertEqual(title, "Broker accounts need attention")
+        self.assertEqual(body.splitlines(), ["Log in at the dashboard for: kite-2", "upstox-1: static IP"])
+
+    def test_push_body_never_contains_figures_or_tokens(self):
+        import refresh_tokens
+        from investlib import brokers
+        blocked = {"upstox-1": brokers.SYNC_MESSAGES["static_ip"]}
+        _title, body = refresh_tokens.compose_push([], blocked)
+        self.assertNotRegex(body, r"[0-9]{3,}")
+
+
+class TestSyncEndpointExplainsFailures(TempDataMixin):
+    """POST /api/invest/sync/<account> is what the dashboard's Sync button calls; its
+    toast shows the error text, so a blocked fetch must say why."""
+
+    def _post(self, account, exc):
+        from unittest import mock
+        import invest_api
+        from investlib import brokers
+        with mock.patch.object(brokers, "kite_sync", side_effect=exc):
+            return invest_api.handle_post("/api/invest/sync/" + account, b"")
+
+    def test_blocked_fetch_returns_the_reason_not_a_bare_http_error(self):
+        kind, status, payload = self._post("kite-1", _FakeHTTPError(401, STATIC_IP_BODY))
+        self.assertEqual((kind, status), ("json", 500))
+        self.assertEqual(payload["kind"], "static_ip")
+        self.assertEqual(payload["code"], "UDAPI1221")
+        self.assertIn("static IP", payload["error"])
+        self.assertNotIn("401 Client Error", payload["error"])
+
+    def test_unclassified_errors_keep_their_original_text_and_status(self):
+        _kind, status, payload = self._post("kite-1", RuntimeError("weird"))
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"], "weird")
+
+    def test_account_without_an_api_sync_is_still_a_400(self):
+        _kind, status, _payload = self._post("coin-1", RuntimeError("never reached"))
+        self.assertEqual(status, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { loanState, incomeTotalsForYear, computeGoldGain, maturityInfo,
         num, expenseTotal, externalHelpTotal, expenseGroupTotals,
-        ledgerNet, ledgerCashback, ledgerTotals } = require("../public/finance-math.js");
+        ledgerNet, ledgerCashback, ledgerTotals,
+        findLikelyDuplicateRows } = require("../public/finance-math.js");
 
 const SAMPLE = path.join(__dirname, "..", "samples", "demo-finances.json");
 const DB = JSON.parse(fs.readFileSync(SAMPLE, "utf8"));
@@ -154,4 +155,16 @@ test("sample: an age-based maturity holding resolves to an age + future year", (
   assert.equal(m.age, h.maturityAge);
   assert.equal(m.year, birthYear + h.maturityAge);
   assert.ok(m.year > new Date().getFullYear(), "maturity year is in the future");
+});
+
+test("sample: a hand-typed Equity row mirrors the synced demo broker account (double-count warning is demoable)", () => {
+  // The demo Kite account is seeded in server.py ensure_demo_invest_data() (owner Arjun:
+  // 40 x 510 + 120 x 92 invested = 31,440; 40 x 585 + 120 x 88 now = 33,960). The live row
+  // is injected server-side, so rebuild it here and prove the committed sample row would be
+  // flagged. tests/test_server.py checks the same thing against the real seeded data.
+  const liveKite = { id: "live-kite-1", liveSync: true, category: "Kite - demo", owner: "Arjun",
+                     subCategory: "Equity", invested: 31440, currentValue: 33960 };
+  const found = findLikelyDuplicateRows([...DB.portfolio, liveKite]);
+  assert.equal(found.length, 1, "exactly the one demo duplicate is flagged, no false positives");
+  assert.equal(found[0].manualId, "pf09");
 });

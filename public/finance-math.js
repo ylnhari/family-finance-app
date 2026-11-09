@@ -313,6 +313,37 @@ function ledgerTotals(transactions) {
            abs: Math.abs(net) };
 }
 
+/* ===================== Portfolio duplicate detection =====================
+   The Portfolio page is hand-typed rows PLUS server-injected liveSync rows from the
+   Investments tab. Nothing stops someone typing a "Stocks" row for money that a synced
+   broker account now reports as well, and then the same holdings are counted twice in
+   every total and allocation chart.
+   A hand-typed row is a LIKELY duplicate of a live row when the same owner holds both
+   in the same asset class AND both invested and current value agree within
+   DUPLICATE_TOLERANCE (an older snapshot of the same holdings is never exactly equal).
+   Warning only: rows are never merged or dropped on the user's behalf. */
+const DUPLICATE_TOLERANCE = 0.15;
+
+function findLikelyDuplicateRows(portfolio, tolerance) {
+  const tol = tolerance == null ? DUPLICATE_TOLERANCE : tolerance;
+  const rows = portfolio || [];
+  const live = rows.filter(r => r && r.liveSync);
+  const close = (a, b) => a > 0 && b > 0 && Math.abs(a / b - 1) <= tol;
+  const who = r => String(r.owner || "").trim().toLowerCase();
+  const found = [];
+  for (const m of rows) {
+    if (!m || m.liveSync) continue;
+    for (const l of live) {
+      if (who(m) !== who(l) || m.subCategory !== l.subCategory) continue;
+      if (close(num(m.currentValue), num(l.currentValue)) && close(num(m.invested), num(l.invested))) {
+        found.push({ manualId: m.id, liveId: l.id, manualLabel: m.category, liveLabel: l.category,
+                     owner: m.owner, subCategory: m.subCategory });
+      }
+    }
+  }
+  return found;
+}
+
 /* Node test access only — ignored in the browser */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
@@ -321,6 +352,6 @@ if (typeof module !== "undefined" && module.exports) {
     isExternalHelpGroup, isExternalHelpEntry, externalHelpTotal, expenseTotal,
     expenseGroupTotals,
     withExternalHelpSummary,
-    ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
+    ledgerCashback, ledgerNet, ledgerYear, ledgerTotals, findLikelyDuplicateRows, DUPLICATE_TOLERANCE
   };
 }

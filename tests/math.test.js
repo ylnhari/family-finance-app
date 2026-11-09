@@ -7,7 +7,8 @@ const {
   validAmount, incomeTotalsForYear, computeGoldGain, computeGoldInvested, maturityInfo,
   isExternalHelpGroup, isExternalHelpEntry, externalHelpTotal, expenseTotal, expenseGroupTotals,
   withExternalHelpSummary,
-  ledgerCashback, ledgerNet, ledgerYear, ledgerTotals
+  ledgerCashback, ledgerNet, ledgerYear, ledgerTotals,
+  findLikelyDuplicateRows, DUPLICATE_TOLERANCE
 } = require("../public/finance-math.js");
 
 const approx = (a, b, tol = 1) => assert.ok(Math.abs(a - b) <= tol, `${a} ≈ ${b} (±${tol})`);
@@ -402,4 +403,52 @@ test("ledgerTotals: net-negative flips direction to 'owe'", () => {
   ]);
   approx(t.net, -37000);
   assert.equal(t.direction, "owe");
+});
+
+/* ---- Portfolio duplicate detection: hand-typed row vs a synced broker row ---- */
+const live = (o = {}) => ({ id: "live-kite-1", liveSync: true, category: "Kite", owner: "Arjun",
+  subCategory: "Equity", invested: 100000, currentValue: 120000, ...o });
+const manual = (o = {}) => ({ id: "m1", category: "Stocks", owner: "Arjun",
+  subCategory: "Equity", invested: 95000, currentValue: 110000, ...o });
+
+test("findLikelyDuplicateRows: flags a hand-typed row that mirrors a synced account", () => {
+  const found = findLikelyDuplicateRows([manual(), live()]);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].manualId, "m1");
+  assert.equal(found[0].liveId, "live-kite-1");
+  assert.equal(found[0].manualLabel, "Stocks");
+});
+
+test("findLikelyDuplicateRows: owner match ignores case and spacing", () => {
+  assert.equal(findLikelyDuplicateRows([manual({ owner: "  arjun " }), live()]).length, 1);
+});
+
+test("findLikelyDuplicateRows: different owner or asset class is not a duplicate", () => {
+  assert.equal(findLikelyDuplicateRows([manual({ owner: "Priya" }), live()]).length, 0);
+  assert.equal(findLikelyDuplicateRows([manual({ subCategory: "Debt" }), live()]).length, 0);
+});
+
+test("findLikelyDuplicateRows: both invested AND current must agree", () => {
+  // current is close but invested is far off (e.g. an EPF/NPS-style row) -> not flagged
+  assert.equal(findLikelyDuplicateRows([manual({ invested: 40000 }), live()]).length, 0);
+  assert.equal(findLikelyDuplicateRows([manual({ currentValue: 60000 }), live()]).length, 0);
+});
+
+test("findLikelyDuplicateRows: zero or blank values never match", () => {
+  assert.equal(findLikelyDuplicateRows([manual({ invested: 0, currentValue: 0 }), live({ invested: 0, currentValue: 0 })]).length, 0);
+  assert.equal(findLikelyDuplicateRows([manual({ invested: "" }), live()]).length, 0);
+});
+
+test("findLikelyDuplicateRows: only manual-vs-live pairs are compared", () => {
+  assert.equal(findLikelyDuplicateRows([live(), live({ id: "live-kite-2" })]).length, 0);
+  assert.equal(findLikelyDuplicateRows([manual(), manual({ id: "m2" })]).length, 0);
+  assert.equal(findLikelyDuplicateRows([]).length, 0);
+  assert.equal(findLikelyDuplicateRows(null).length, 0);
+});
+
+test("findLikelyDuplicateRows: tolerance is the documented constant and is overridable", () => {
+  assert.equal(DUPLICATE_TOLERANCE, 0.15);
+  const far = manual({ invested: 80000, currentValue: 100000 });          // ~20% off live
+  assert.equal(findLikelyDuplicateRows([far, live()]).length, 0);
+  assert.equal(findLikelyDuplicateRows([far, live()], 0.25).length, 1);
 });

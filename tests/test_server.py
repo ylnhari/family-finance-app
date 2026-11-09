@@ -868,6 +868,30 @@ class DemoModeTests(unittest.TestCase):
         self.assertTrue(owners & set(got["settings"]["persons"]),
                         "live row owners should already be known demo persons")
 
+    def test_demo_data_shows_the_double_count_warning_and_honest_freshness(self):
+        """The Portfolio double-count warning (public/finance-math.js
+        findLikelyDuplicateRows) must be demoable: the committed sample has a hand-typed
+        Equity row that mirrors the seeded demo broker account. Same rule as the JS:
+        same owner + asset class, and both invested and current within 15%. Also: live
+        rows carry the snapshot's own date (never 'now') and a fresh demo sync is not stale."""
+        st, got = _req("GET", self.base + "/api/data")
+        self.assertEqual(st, 200)
+        live = [r for r in got["portfolio"] if r.get("liveSync")]
+        manual = [r for r in got["portfolio"] if not r.get("liveSync")]
+
+        def close(a, b):
+            return a > 0 and b > 0 and abs(a / b - 1) <= 0.15
+
+        pairs = [(m["id"], l["id"]) for m in manual for l in live
+                 if m["owner"].strip().lower() == l["owner"].strip().lower()
+                 and m["subCategory"] == l["subCategory"]
+                 and close(m["invested"], l["invested"]) and close(m["currentValue"], l["currentValue"])]
+        self.assertEqual(pairs, [("pf09", "live-kite-1")],
+                         "the demo duplicate is flagged and nothing else is")
+        kite = next(r for r in live if r["id"] == "live-kite-1")
+        self.assertEqual(kite["lastSynced"], time.strftime("%Y-%m-%d"))
+        self.assertFalse(kite["stale"])
+
     def test_demo_invest_files_stay_in_sandbox(self):
         invest_dir = os.path.join(self.tmp, "invest")
         self.assertTrue(os.path.isfile(os.path.join(invest_dir, "holdings.json")))

@@ -9,7 +9,29 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Portfolio live rows no longer claim to be freshly updated.** `investlib/bridge.py` stamped
+  every synced row `lastSynced = now`, so a snapshot that had not refreshed for weeks still read
+  "⟳ live, last updated just now". Rows now carry the snapshot's own date plus `ageDays` /
+  `stale` (broker-API sources after 4 days, imports after 30); the badge turns amber
+  ("⚠ Nd old") when stale.
+- **A broker sync that is failing is now visible.** `brokers.sync()` records every outcome in
+  `data/invest/sync_status.json`; `GET /api/invest/tokens` returns it as `sync`, and the Broker
+  sync table shows "sync failing" with the reason beside a token that still looks valid
+  (previously a rejected holdings fetch left the data silently stale). `POST
+  /api/invest/sync/<account>` now returns that reason (`error`, plus `kind` and `code`) instead of
+  a bare "401 Client Error".
+- **`refresh_tokens.py` no longer reports every failure as "Broker login needed".** Errors are
+  classified (`brokers.classify_sync_error`): a rejected token still asks for a login, but a
+  blocked fetch (e.g. Upstox static-IP rule, `UDAPI1221`) or an unreachable broker is pushed as
+  "Broker sync failing" with the actual reason. `refresh_all()` keeps its old return value.
+
 ### Added
+- **Possible double-count warning on the Portfolio page** — a hand-typed row whose owner, asset
+  class, invested and current value all match a synced broker row (within 15%) gets a
+  "possible duplicate" chip and a page-level note. Warning only; nothing is merged or removed.
+  Pure logic: `findLikelyDuplicateRows` in `public/finance-math.js`; the demo dataset includes
+  one example row.
 - **Live Investments dashboard** (`/invest`, 2026-07-16) — consolidates personal holdings across
   brokers: Zerodha Kite (multiple accounts), Upstox, Coin mutual funds, Wint Wealth
   bonds (multiple accounts), and smallcase into one view. Supports broker OAuth sync,

@@ -18,7 +18,8 @@ COIN_SOURCE_ACCOUNT says which Kite account owns the Coin folio.
 """
 
 import os
-from datetime import date
+import re
+from datetime import date, datetime
 
 try:
     import requests  # optional — live broker sync only (requirements-invest.txt)
@@ -114,8 +115,84 @@ def token_for(account_id: str) -> str | None:
     return None
 
 
+# ---- sync health ------------------------------------------------------------
+# A token being valid says nothing about whether the holdings fetch works: Upstox
+# rejects a perfectly good Analytics Token when the call does not come from the
+# static IP registered on the API app, and the data then silently goes stale.
+# Every sync records its outcome here so the dashboard, the Portfolio badge and
+# the morning push can say what is actually wrong instead of "log in".
+
+SYNC_KINDS = ("static_ip", "auth", "network", "other")
+_STATIC_IP_CODES = ("UDAPI1221",)
+_NETWORK_ERROR_NAMES = ("ConnectionError", "Timeout", "ReadTimeout", "ConnectTimeout",
+                        "NetworkException", "TimeoutError", "SSLError")
+_LONG_TOKEN_RE = re.compile(r"[A-Za-z0-9_\-.]{32,}")  # never echo anything token-shaped
+
+SYNC_MESSAGES = {
+    "static_ip": ("The broker only accepts this API call from the static IP registered on "
+                  "your API app. Register this machine's current public IP there, or see "
+                  "docs/BROKER-SETUP.md (step 3) for the daily-login alternative."),
+    "auth": "The broker rejected the token. Log in again at the dashboard.",
+    "network": "Could not reach the broker. Check the connection; this usually clears on its own.",
+}
+
+
+def classify_sync_error(exc: Exception) -> dict:
+    """Turn a failed sync into {kind, message, code}. Duck-typed on purpose: the
+    broker SDKs and `requests` are optional installs, so nothing here imports them.
+
+    The static-IP rejection arrives as HTTP 401, so it must be told apart from an
+    expired token *before* the generic 401 rule, or it is misreported as "log in again"
+    when the token was accepted and the request was blocked for another reason.
+    """
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    try:
+        body = (response.text or "")[:2000] if response is not None else ""
+    except Exception:
+        body = ""
+    found = re.search(r'"error_?[cC]ode"\s*:\s*"([A-Z0-9_]+)"', body)
+    code = found.group(1) if found else None
+    blob = f"{exc} {body}".lower()
+    name = type(exc).__name__
+
+    if code in _STATIC_IP_CODES or "static ip" in blob:
+        kind = "static_ip"
+    elif status in (401, 403) or name == "TokenException" or (
+            isinstance(exc, ValueError) and "token" in str(exc).lower()):
+        kind = "auth"
+    elif name in _NETWORK_ERROR_NAMES or isinstance(exc, (ConnectionError, TimeoutError)):
+        kind = "network"
+    else:
+        kind = "other"
+    message = SYNC_MESSAGES.get(kind) or _LONG_TOKEN_RE.sub("<redacted>", f"{name}: {exc}")[:200]
+    return {"kind": kind, "message": message, "code": code}
+
+
+def _record_sync(account_id: str, error: dict | None) -> None:
+    """Persist the latest sync outcome for one account (data/invest/sync_status.json)."""
+    try:
+        status = store.load("sync_status", default={}) or {}
+        entry = {"ok": error is None, "at": datetime.now().isoformat(timespec="seconds")}
+        if error:
+            entry.update(kind=error["kind"], message=error["message"], code=error["code"])
+        status[account_id] = entry
+        store.save("sync_status", status)
+    except Exception:
+        pass  # bookkeeping must never turn a good sync into a failed one
+
+
+def sync_status() -> dict:
+    """{account_id: {ok, at, kind?, message?, code?}} for accounts synced at least once."""
+    try:
+        return store.load("sync_status", default={}) or {}
+    except ValueError:
+        return {}
+
+
 def token_status() -> dict:
-    """Per API account: credentials configured? token fresh today?"""
+    """Per API account: credentials configured? token fresh today? last sync result?"""
+    last = sync_status()
     out = {}
     for acct_id, kind in api_accounts():
         try:
@@ -128,6 +205,8 @@ def token_status() -> dict:
         out[acct_id] = {"kind": kind, "configured": configured,
                         "token_fresh": analytics or token_for(acct_id) is not None,
                         "long_lived": analytics}
+        if acct_id in last:  # additive: the payload is unchanged for an account never synced
+            out[acct_id]["sync"] = last[acct_id]
     return out
 
 
@@ -321,11 +400,15 @@ def _mark_source(account_id: str, source: str) -> None:
 
 def sync(account_id: str) -> dict:
     kind = _broker_type(account_id)
-    if kind == "kite":
-        return kite_sync(account_id)
-    if kind == "upstox":
-        return upstox_sync(account_id)
-    raise ValueError(f"{account_id}: no API sync (manual/CSV only)")
+    if kind not in ("kite", "upstox"):
+        raise ValueError(f"{account_id}: no API sync (manual/CSV only)")
+    try:
+        result = kite_sync(account_id) if kind == "kite" else upstox_sync(account_id)
+    except Exception as exc:
+        _record_sync(account_id, classify_sync_error(exc))
+        raise
+    _record_sync(account_id, None)
+    return result
 
 
 def login_url(account_id: str) -> str:

@@ -968,11 +968,22 @@ async function render() {
       : t.token_fresh
         ? `<span class="badge ok"><span class="dotmini"></span>fresh today</span>`
         : `<span class="badge stale"><span class="dotmini"></span>expired</span>`;
+    // A valid token does not mean the holdings fetch works (e.g. Upstox rejects calls
+    // from an IP that is not the registered static IP), so show the last sync result too.
+    const sy = t.sync || {};
+    const syncFailing = sy.ok === false;
+    const syncBadge = syncFailing
+      ? ` <span class="badge off" title="${esc(sy.message || "")}"><span class="dotmini"></span>sync failing${sy.kind === "static_ip" ? " · static IP" : ""}</span>`
+      : "";
+    const syncNote = syncFailing
+      ? `<div class="muted" style="font-size:.76rem;margin-top:.3rem;max-width:30em;white-space:normal">${esc(sy.message || "")}</div>`
+      : "";
+    const needsLogin = !t.token_fresh || (syncFailing && sy.kind === "auth");
     const action = !t.configured ? ""
-      : t.token_fresh
-        ? `<button onclick="syncAccount('${id}', this)">↻ Sync now</button>`
-        : `<a class="btn btn-primary" href="/auth/${t.kind}/${id}/login">→ Login &amp; sync</a>`;
-    return `<tr><td>${acctCell(id)}</td><td>${cred}</td><td>${tok}</td><td class="num">${action}</td></tr>`;
+      : needsLogin
+        ? `<a class="btn btn-primary" href="/auth/${t.kind}/${id}/login">→ Login &amp; sync</a>`
+        : `<button onclick="syncAccount('${id}', this)">↻ ${syncFailing ? "Retry sync" : "Sync now"}</button>`;
+    return `<tr><td>${acctCell(id)}</td><td>${cred}</td><td>${tok}${syncBadge}${syncNote}</td><td class="num">${action}</td></tr>`;
   }).join("");
 
   // ---- IPOs needing a decision ----

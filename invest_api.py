@@ -207,7 +207,17 @@ def handle_post(path: str, body: bytes):
                                   "tracker": tracker,
                                   "total": len(ipo_history.records())})
         if route.startswith("/sync/"):
-            return ("json", 200, brokers.sync(route.rsplit("/", 1)[1]))
+            try:
+                return ("json", 200, brokers.sync(route.rsplit("/", 1)[1]))
+            except ValueError:
+                raise  # unchanged: bad account / no token -> 400 via the handler below
+            except Exception as e:
+                # Say what is wrong ("static IP", "log in again", "unreachable") instead of
+                # surfacing a bare "401 Client Error" the dashboard toast cannot explain.
+                info = brokers.classify_sync_error(e)
+                if info["kind"] == "other":
+                    raise
+                return ("json", 500, {"error": info["message"], "kind": info["kind"], "code": info["code"]})
         data = json.loads(body or b"{}")
         if route == "/accounts":
             return _create_account(data)
